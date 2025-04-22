@@ -17,7 +17,7 @@ use tracing::info;
 #[derive(Parser)]
 #[command(
     name = "mys-gas-station",
-    about = "Mys Gas Station",
+    about = "MySocail Gas Station",
     rename_all = "kebab-case"
 )]
 pub struct Command {

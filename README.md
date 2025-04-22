@@ -1,4 +1,4 @@
-# MySocail Gas Pool
+# MySocial Gas Pool
 
 Mys Gas Pool is a service that powers sponsored transactions on MySocial at scale. It manages a database of gas coins owned
 by a sponsor address and provides APIs to reserve gas coins and use them to pay for transactions. It achieves

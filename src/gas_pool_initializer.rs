@@ -401,7 +401,7 @@ mod tests {
         let available_coin_count = storage.get_available_coin_count().await.unwrap();
         tracing::debug!("Available coin count: {}", available_coin_count);
 
-        // Transfer some new MYS into the sponsor account.
+        // Transfer some new MySo into the sponsor account.
         let new_addr = *cluster
             .get_addresses()
             .iter()
@@ -424,7 +424,7 @@ mod tests {
         assert!(
             // In an ideal world we should have NEW_COIN_BALANCE_FACTOR_THRESHOLD more coins
             // since we just send a new coin with balance NEW_COIN_BALANCE_FACTOR_THRESHOLD and split
-            // into target balance of 1 MYS each. However due to gas cost in splitting in practice
+            // into target balance of 1 MySo each. However due to gas cost in splitting in practice
             // we are getting less, depending on gas cost which could change from time to time.
             // Subtract 5 which is an arbitrary small number just to be safe.
             new_available_coin_count

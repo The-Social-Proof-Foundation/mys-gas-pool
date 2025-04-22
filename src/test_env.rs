@@ -44,7 +44,7 @@ pub async fn start_gas_station(
     init_gas_amounts: Vec<u64>,
     target_init_coin_balance: u64,
 ) -> (TestCluster, GasPoolContainer) {
-    debug!("Starting Mys cluster..");
+    debug!("Starting MySo cluster..");
     let (test_cluster, signer) = start_mys_cluster(init_gas_amounts).await;
     let fullnode_url = test_cluster.fullnode_handle.rpc_url.clone();
     let sponsor_address = signer.get_address();

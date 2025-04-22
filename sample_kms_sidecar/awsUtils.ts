@@ -77,7 +77,7 @@ function createAWSKMSClient() {
 
 export async function getPublicKey(keyId: string) {
     // gets AWS KMS Public Key in DER format
-    // returns Mys Public Key
+    // returns MySo Public Key
 
     // AWS KMS client configuration
     const client = createAWSKMSClient();
@@ -111,7 +111,7 @@ export async function getPublicKey(keyId: string) {
                 ? new Secp256k1PublicKey(compressedKey)
                 : "";
             if (mys_public_key instanceof Secp256k1PublicKey) {
-                console.log("Mys Public Key:", mys_public_key.toMysAddress());
+                console.log("MySocial Public Key:", mys_public_key.toMysAddress());
             }
             return mys_public_key;
         } else {
@@ -124,7 +124,7 @@ export async function getPublicKey(keyId: string) {
 }
 
 function getConcatenatedSignature(signature: Uint8Array): Uint8Array {
-    // creates signature consumable by Mys 'toSerializedSignature' call
+    // creates signature consumable by MySo 'toSerializedSignature' call
 
     // start processing signature
     // populate concatenatedSignature with [r,s] from DER signature
@@ -159,7 +159,7 @@ async function getSerializedSignature(
     mys_pubkey: Secp256k1PublicKey,
 ) {
     // create serialized signature from [r,s] and public key
-    // Mys Serialized Signature format: `flag || sig || pk`.
+    // MySo Serialized Signature format: `flag || sig || pk`.
     const flag = mys_pubkey ? mys_pubkey.flag() : 1;
 
     // Check if flag is one of the allowed values and cast to SignatureFlag
@@ -183,8 +183,8 @@ async function getSerializedSignature(
 }
 
 export async function signAndVerify(tx_bytes: Uint8Array) {
-    // sign mys transaction using AWS KMS
-    // verify mys transaction using mys public key
+    // sign myso transaction using AWS KMS
+    // verify myso transaction using myso public key
     // verify signature using AWS KMS
 
     const keyId = process.env.AWS_KMS_KEY_ID || "";
@@ -228,12 +228,12 @@ export async function signAndVerify(tx_bytes: Uint8Array) {
 
         // verify signature with mys
         if (publicKeyToUse !== undefined) {
-            console.log("Verifying Mys Signature against TX");
+            console.log("Verifying MySo Signature against TX");
             const isValid = await publicKeyToUse.verifyTransactionBlock(
                 tx_bytes,
                 serializedSignature,
             );
-            console.log("Mys Signature valid:", isValid);
+            console.log("MySocial Signature valid:", isValid);
         }
 
         // Verify the signature in KMS

@@ -156,7 +156,7 @@ impl ObjectLockManager {
     /// return the list of address-owned objects.
     ///
     /// This function will query the owner of the objects from the cache.
-    /// If the mutability of an object is not in the cache, it will make a batch query to the Mys client to get their mutability,
+    /// If the mutability of an object is not in the cache, it will make a batch query to the MySo client to get their mutability,
     /// and add to the cache.
     ///
     /// The returned list of objects are owned by an address.

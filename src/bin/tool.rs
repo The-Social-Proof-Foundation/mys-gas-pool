@@ -13,7 +13,7 @@ use mys_types::crypto::get_account_key_pair;
 #[derive(Parser)]
 #[command(
     name = "mys-gas-pool-tool",
-    about = "Mys Gas Pool Command Line Tools",
+    about = "MySocial Gas Pool Command Line Tools",
     rename_all = "kebab-case"
 )]
 pub enum ToolCommand {
