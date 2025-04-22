@@ -1,6 +1,6 @@
 # MySocial Gas Pool
 
-Mys Gas Pool is a service that powers sponsored transactions on MySocial at scale. It manages a database of gas coins owned
+MySocial Gas Pool is a service that powers sponsored transactions on MySocial at scale. It manages a database of gas coins owned
 by a sponsor address and provides APIs to reserve gas coins and use them to pay for transactions. It achieves
 scalability and high throughput by managing a large number of gas coin objects in the pool, so that it can sponsor a
 large number of transactions concurrently.
@@ -126,7 +126,7 @@ implementations:
 2. In-memory: This allows the gas pool server to load a [`MysKeyPair`](https://github.com/MystenLabs/mys/blob/2873d7a2532343247d545d52bcd9d7ab138096bb/crates/mys-types/src/crypto.rs#L136) directly from file and use it to sign transactions. The config file expects a Base 64 encoded form of `MysKeyPair`. You can obtain it using one the following ways:
    - Using the `myso` binary to generate a new keypair by running `myso keytool generate ed25519`, and find the serialized keypair in the `<address>.key` file.
    - If you have already imported your key to your local MySo client config, you can also find the keypair in `~/.mys/mys_config/mys.keystore`.
-   - More details of MySo key formats can be found in the [official document](https://docs.mys.io/references/cli/keytool).
+   - More details of MySo key formats can be found in the [official document](https://docs.mysocial.network/references/cli/keytool).
 
 ## Binaries
 
