@@ -1,0 +1,9 @@
+[build]
+builder = "docker"
+dockerfilePath = "docker/Dockerfile"
+
+[deploy]
+startCommand = "mys-gas-station --config-path /etc/gas-station/config.yaml"
+healthcheckPath = "/"
+healthcheckTimeout = 30
+restartPolicyType = "always" 

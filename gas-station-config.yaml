@@ -1,0 +1,14 @@
+signer-config:
+  sidecar:
+    sidecar_url: "${KMS_SIDECAR_URL}"
+rpc-host-ip: 0.0.0.0
+rpc-port: ${PORT:-9527}
+metrics-port: 9184
+gas-pool-config:
+  redis:
+    redis_url: "${REDIS_URL}"
+fullnode-url: "${FULLNODE_URL}"
+coin-init-config:
+  target-init-balance: 100000000  # 0.1 MYS in MIST
+  refresh-interval-sec: 86400     # 24 hours
+daily-gas-usage-cap: 1500000000000  # 1500 MYS in MIST 
