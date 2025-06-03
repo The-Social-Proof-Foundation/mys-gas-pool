@@ -25,6 +25,8 @@ COPY gas-station-config.yaml /etc/gas-station/config-template.yaml
 # Create startup script that substitutes environment variables
 RUN echo '#!/bin/bash\n\
 set -e\n\
+# Set default values if not provided\n\
+export PORT=${PORT:-9527}\n\
 echo "Substituting environment variables in config..."\n\
 envsubst < /etc/gas-station/config-template.yaml > /etc/gas-station/config.yaml\n\
 echo "Starting mys-gas-station..."\n\

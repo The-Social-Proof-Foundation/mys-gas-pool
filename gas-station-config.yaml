@@ -2,7 +2,7 @@ signer-config:
   sidecar:
     sidecar_url: "${KMS_SIDECAR_URL}"
 rpc-host-ip: 0.0.0.0
-rpc-port: ${PORT:-9527}
+rpc-port: ${PORT}
 metrics-port: 9184
 gas-pool-config:
   redis:
