@@ -10,39 +10,36 @@ import {
 } from '@socialproof/mys/cryptography';
 import { blake2b } from '@noble/hashes/blake2b';
 import { secp256k1 } from '@noble/curves/secp256k1';
-import * as asn1ts from 'asn1-ts';
 
-// Helper function to convert bits to bytes for DER parsing
-function bitsToBytes(bitsArray: Uint8ClampedArray): Uint8Array {
-    const bytes = new Uint8Array(65);
-    for (let i = 0; i < 520; i++) {
-        if (bitsArray[i] === 1) {
-            bytes[Math.floor(i / 8)] |= 1 << (7 - (i % 8));
-        }
-    }
-    return bytes;
-}
+// Compress uncompressed public key from raw bytes
+function compressPublicKey(uncompressedKey: Uint8Array): Uint8Array {
+    console.log('=== COMPRESS PUBLIC KEY DEBUG ===');
+    console.log('Input bytes length:', uncompressedKey.length);
+    console.log('First 10 bytes:', Array.from(uncompressedKey.slice(0, 10)).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '));
+    console.log('Last 5 bytes:', Array.from(uncompressedKey.slice(-5)).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '));
 
-// Compress uncompressed public key from DER format
-function compressPublicKeyClamped(uncompressedKey: Uint8ClampedArray): Uint8Array {
-    if (uncompressedKey.length !== 520) {
-        throw new Error('Unexpected length for an uncompressed public key');
+    if (uncompressedKey.length !== 65) {
+        throw new Error(`Unexpected length for an uncompressed public key: ${uncompressedKey.length}, expected 65`);
     }
 
-    // Convert bits to bytes
-    const uncompressedBytes = bitsToBytes(uncompressedKey);
-
-    // Check if the first byte is 0x04
-    if (uncompressedBytes[0] !== 0x04) {
-        throw new Error('Public key does not start with 0x04');
+    // Check if the first byte is 0x04 (uncompressed format)
+    if (uncompressedKey[0] !== 0x04) {
+        throw new Error(`Public key does not start with 0x04, starts with: 0x${uncompressedKey[0].toString(16).padStart(2, '0')}`);
     }
 
-    // Extract X-Coordinate (skip the first byte, which should be 0x04)
-    const xCoord = uncompressedBytes.slice(1, 33);
+    // Extract X-coordinate (bytes 1-32)
+    const xCoord = uncompressedKey.slice(1, 33);
+    
+    // Extract Y-coordinate (bytes 33-64) 
+    const yCoord = uncompressedKey.slice(33, 65);
+    
+    // Determine parity byte for compressed format
+    const yLastByte = yCoord[31]; // Last byte of Y coordinate
+    const parityByte = yLastByte % 2 === 0 ? 0x02 : 0x03;
 
-    // Determine parity byte for y coordinate
-    const yCoordLastByte = uncompressedBytes[64];
-    const parityByte = yCoordLastByte % 2 === 0 ? 0x02 : 0x03;
+    console.log('X coordinate:', Array.from(xCoord).map(b => b.toString(16).padStart(2, '0')).join(''));
+    console.log('Y coordinate last byte:', yLastByte.toString(16).padStart(2, '0'));
+    console.log('Parity byte:', parityByte.toString(16).padStart(2, '0'));
 
     return new Uint8Array([parityByte, ...xCoord]);
 }
@@ -105,158 +102,59 @@ export async function getPublicKey(keyPath: string): Promise<Secp256k1PublicKey 
         console.log('PEM content length:', pemContent.length);
         const publicKeyBytes = Buffer.from(pemContent, 'base64');
         console.log('DER bytes length:', publicKeyBytes.length);
+        console.log('DER bytes (hex):', publicKeyBytes.toString('hex'));
         
-        // Parse DER format
-        const derElement = new asn1ts.DERElement();
-        derElement.fromBytes(publicKeyBytes);
-
-        console.log('DER element parsed, checking structure...');
-        console.log('DER tagClass:', derElement.tagClass);
-        console.log('DER construction:', derElement.construction);
-        console.log('DER tagNumber:', derElement.tagNumber);
-        console.log('DER value type:', typeof derElement.value);
-        console.log('DER value length:', derElement.value?.length);
-
-        // Try to access the sequence components differently
-        let components: any[] | undefined;
+        // According to RFC 5280 and X.509 standards, for SECP256K1 public keys:
+        // The DER structure is: SEQUENCE { SEQUENCE { OID, NULL }, BIT STRING }
+        // The BIT STRING contains: unused_bits_byte + 0x04 + X_coord(32) + Y_coord(32)
         
-        // Method 1: Direct access to components (original approach)
-        if ((derElement as any).components) {
-            components = (derElement as any).components;
-            console.log('Found components via direct access, length:', components?.length);
-        } 
-        // Method 2: Access via sequence property
-        else if ((derElement as any).sequence) {
-            components = (derElement as any).sequence;
-            console.log('Found components via sequence property, length:', components?.length);
-        }
-        // Method 3: Parse as ASN.1 sequence manually
-        else if (derElement.construction === asn1ts.ASN1Construction.constructed) {
-            console.log('Attempting manual sequence parsing...');
-            try {
-                // Try to decode as a sequence
-                const sequence = new asn1ts.DERElement();
-                sequence.fromBytes(publicKeyBytes);
-                if (sequence.value && sequence.value.length > 0) {
-                    // Create new DER elements from the value
-                    let offset = 0;
-                    components = [];
-                    while (offset < sequence.value.length) {
-                        try {
-                            const element = new asn1ts.DERElement();
-                            const remainingBytes = sequence.value.slice(offset);
-                            element.fromBytes(remainingBytes);
-                            components.push(element);
-                            // Use a more reliable way to calculate element length
-                            const elementLength = (element as any).length || (element as any).encodedLength || remainingBytes.length;
-                            offset += elementLength;
-                            if (offset >= sequence.value.length) break;
-                        } catch (e) {
-                            console.log('Failed to parse element at offset', offset, ':', e);
-                            break;
-                        }
-                    }
-                    console.log('Manual parsing found', components?.length || 0, 'components');
+        // For SECP256K1, the OID is 1.3.132.0.10 and the total structure should be:
+        // 30 56 (SEQUENCE, 86 bytes)
+        //   30 10 (SEQUENCE, 16 bytes) - AlgorithmIdentifier  
+        //     06 07 2A8648CE3D020106 (OID for id-ecPublicKey)
+        //     06 05 2B8104000A (OID for secp256k1: 1.3.132.0.10)
+        //   03 42 (BIT STRING, 66 bytes)
+        //     00 (unused bits)
+        //     04 (uncompressed point indicator)
+        //     [32 bytes X coordinate]
+        //     [32 bytes Y coordinate]
+        
+        // Find the BIT STRING (tag 0x03)
+        let bitStringIndex = -1;
+        for (let i = 0; i < publicKeyBytes.length - 1; i++) {
+            if (publicKeyBytes[i] === 0x03) {
+                // Found BIT STRING tag, next byte should be length
+                const length = publicKeyBytes[i + 1];
+                if (length === 0x42) { // 66 bytes for SECP256K1 (1 + 1 + 64)
+                    bitStringIndex = i;
+                    break;
                 }
-            } catch (e) {
-                console.log('Manual sequence parsing failed:', e);
             }
         }
-
-        if (!components || components.length === 0) {
-            console.error('Could not find any components in DER structure');
-            console.log('Raw DER bytes (first 20):', Array.from(publicKeyBytes.slice(0, 20)).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '));
-            
-            // Try a completely different approach - raw byte parsing
-            console.log('Attempting raw byte parsing of SECP256K1 public key...');
-            try {
-                // For SECP256K1 public keys, the DER structure typically ends with 65 bytes (0x04 + 32 + 32)
-                // Let's try to find the public key bytes directly
-                const derBytes = Array.from(publicKeyBytes);
-                console.log('Full DER bytes:', derBytes.map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '));
-                
-                // Look for the 0x04 prefix which indicates an uncompressed public key
-                const pubkeyStartIndex = derBytes.findIndex((byte, index) => {
-                    // Look for 0x04 followed by what should be 64 bytes
-                    return byte === 0x04 && index + 64 < derBytes.length;
-                });
-                
-                if (pubkeyStartIndex !== -1) {
-                    console.log('Found potential public key at index:', pubkeyStartIndex);
-                    const pubkeyBytes = publicKeyBytes.slice(pubkeyStartIndex, pubkeyStartIndex + 65);
-                    console.log('Extracted public key bytes length:', pubkeyBytes.length);
-                    
-                    if (pubkeyBytes.length === 65 && pubkeyBytes[0] === 0x04) {
-                        // Convert to bit array format expected by compressPublicKeyClamped
-                        const rawPublicKey = new Uint8ClampedArray(520); // 65 bytes * 8 bits
-                        for (let i = 0; i < 65; i++) {
-                            for (let bit = 0; bit < 8; bit++) {
-                                rawPublicKey[i * 8 + bit] = (pubkeyBytes[i] >> (7 - bit)) & 1;
-                            }
-                        }
-                        
-                        console.log('Successfully converted to bit array, compressing...');
-                        const compressedKey = compressPublicKeyClamped(rawPublicKey);
-                        const mysPublicKey = new Secp256k1PublicKey(compressedKey);
-                        
-                        console.log('SUCCESS! MySocial Public Key Address:', mysPublicKey.toMysAddress());
-                        return mysPublicKey;
-                    }
-                }
-            } catch (rawParseError) {
-                console.log('Raw parsing also failed:', rawParseError);
-            }
-            
-            throw new Error('Could not parse DER structure - no components found');
+        
+        if (bitStringIndex === -1) {
+            throw new Error('Could not find BIT STRING with expected length in DER structure');
         }
-
-        console.log('Found', components.length, 'components in DER structure');
-
-        // Extract public key from ASN.1 DER structure
-        if (
-            derElement.tagClass === asn1ts.ASN1TagClass.universal &&
-            derElement.construction === asn1ts.ASN1Construction.constructed &&
-            components && components.length >= 2
-        ) {
-            const publicKeyElement = components[1];
-            console.log('Public key element type:', typeof publicKeyElement);
-            console.log('Public key element properties:', Object.keys(publicKeyElement));
-            
-            let rawPublicKey: Uint8ClampedArray | undefined;
-            
-            // Try different ways to access the bit string
-            if (publicKeyElement.bitString) {
-                rawPublicKey = publicKeyElement.bitString;
-                console.log('Found bitString property');
-            } else if ((publicKeyElement as any).value && (publicKeyElement as any).value instanceof Uint8Array) {
-                // Convert Uint8Array to Uint8ClampedArray if needed
-                const valueArray = (publicKeyElement as any).value as Uint8Array;
-                rawPublicKey = new Uint8ClampedArray(valueArray.length * 8);
-                // Convert bytes to bits
-                for (let i = 0; i < valueArray.length; i++) {
-                    for (let bit = 0; bit < 8; bit++) {
-                        rawPublicKey[i * 8 + bit] = (valueArray[i] >> (7 - bit)) & 1;
-                    }
-                }
-                console.log('Converted value to bit string');
-            }
-
-            if (!rawPublicKey) {
-                console.error('Could not extract bit string from public key element');
-                console.log('Available properties:', Object.keys(publicKeyElement));
-                throw new Error('Could not extract public key from DER structure');
-            }
-
-            console.log('Raw public key bit string length:', rawPublicKey.length);
-            const compressedKey = compressPublicKeyClamped(rawPublicKey);
-            const mysPublicKey = new Secp256k1PublicKey(compressedKey);
-            
-            console.log('MySocial Public Key Address:', mysPublicKey.toMysAddress());
-            return mysPublicKey;
-        } else {
-            const componentsLength = components ? components.length : 0;
-            throw new Error(`Unexpected ASN.1 structure: tagClass=${derElement.tagClass}, construction=${derElement.construction}, components=${componentsLength}`);
+        
+        // Extract the bit string content
+        // Skip: tag(1) + length(1) + unused_bits(1) = 3 bytes
+        const publicKeyStart = bitStringIndex + 3;
+        const publicKeyEnd = publicKeyStart + 65; // 1 + 32 + 32 bytes
+        
+        if (publicKeyEnd > publicKeyBytes.length) {
+            throw new Error('DER structure too short for public key data');
         }
+        
+        const uncompressedKey = publicKeyBytes.slice(publicKeyStart, publicKeyEnd);
+        console.log('Extracted uncompressed key length:', uncompressedKey.length);
+        console.log('Uncompressed key (hex):', Array.from(uncompressedKey).map(b => b.toString(16).padStart(2, '0')).join(''));
+        
+        const compressedKey = compressPublicKey(uncompressedKey);
+        const mysPublicKey = new Secp256k1PublicKey(compressedKey);
+        
+        console.log('SUCCESS! MySocial Public Key Address:', mysPublicKey.toMysAddress());
+        return mysPublicKey;
+        
     } catch (error) {
         console.error('Error during get public key:', error);
         return undefined;
@@ -265,21 +163,65 @@ export async function getPublicKey(keyPath: string): Promise<Secp256k1PublicKey 
 
 // Convert DER signature to concatenated format for MySocial
 function getConcatenatedSignature(signature: Uint8Array): Uint8Array {
-    const derElement = new asn1ts.DERElement();
-    derElement.fromBytes(signature);
+    // DER signature format for ECDSA:
+    // 30 [total-length] 02 [R-length] [R] 02 [S-length] [S]
     
-    const derJsonData = (derElement as any).toJSON() as { value: string }[];
+    if (signature[0] !== 0x30) {
+        throw new Error('Invalid DER signature: does not start with SEQUENCE tag');
+    }
     
-    const rValue = derJsonData[0];
-    const sValue = derJsonData[1];
+    let offset = 2; // Skip SEQUENCE tag and length
     
-    const rString = String(rValue);
-    const sString = String(sValue);
+    // Parse R value
+    if (signature[offset] !== 0x02) {
+        throw new Error('Invalid DER signature: R value does not start with INTEGER tag');
+    }
     
-    const secp256k1Sig = new secp256k1.Signature(
-        BigInt(rString),
-        BigInt(sString)
-    );
+    const rLength = signature[offset + 1];
+    offset += 2; // Skip INTEGER tag and length
+    
+    let rBytes = signature.slice(offset, offset + rLength);
+    offset += rLength;
+    
+    // Remove leading zero if present (DER encoding adds it for positive numbers)
+    if (rBytes[0] === 0x00 && rBytes.length > 32) {
+        rBytes = rBytes.slice(1);
+    }
+    
+    // Pad to 32 bytes if needed
+    if (rBytes.length < 32) {
+        const padded = new Uint8Array(32);
+        padded.set(rBytes, 32 - rBytes.length);
+        rBytes = padded;
+    }
+    
+    // Parse S value
+    if (signature[offset] !== 0x02) {
+        throw new Error('Invalid DER signature: S value does not start with INTEGER tag');
+    }
+    
+    const sLength = signature[offset + 1];
+    offset += 2; // Skip INTEGER tag and length
+    
+    let sBytes = signature.slice(offset, offset + sLength);
+    
+    // Remove leading zero if present
+    if (sBytes[0] === 0x00 && sBytes.length > 32) {
+        sBytes = sBytes.slice(1);
+    }
+    
+    // Pad to 32 bytes if needed
+    if (sBytes.length < 32) {
+        const padded = new Uint8Array(32);
+        padded.set(sBytes, 32 - sBytes.length);
+        sBytes = padded;
+    }
+    
+    // Convert to BigInt for secp256k1 library
+    const r = BigInt('0x' + Array.from(rBytes).map(b => b.toString(16).padStart(2, '0')).join(''));
+    const s = BigInt('0x' + Array.from(sBytes).map(b => b.toString(16).padStart(2, '0')).join(''));
+    
+    const secp256k1Sig = new secp256k1.Signature(r, s);
     
     return secp256k1Sig.normalizeS().toCompactRawBytes();
 }
