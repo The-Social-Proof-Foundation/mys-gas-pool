@@ -40,7 +40,15 @@ impl MysClient {
         if let Some((username, password)) = basic_auth {
             mys_client_builder = mys_client_builder.basic_auth(username, password);
         }
-        let mys_client = mys_client_builder.build(fullnode_url).await.unwrap();
+        let mys_client = mys_client_builder.build(fullnode_url).await
+            .unwrap_or_else(|err| {
+                panic!(
+                    "Failed to connect to MySocial fullnode at '{}'. \
+                    Please check that the FULLNODE_URL environment variable is set to a valid MySocial RPC endpoint. \
+                    Error: {:?}",
+                    fullnode_url, err
+                );
+            });
         Self { mys_client }
     }
 

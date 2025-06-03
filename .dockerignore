@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+LICENSE
+*.md
+
+# Build artifacts and cache
+target/
+/target
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Railway and deployment
+railway.toml
+
+# KMS sidecar (separate deployment)
+kms-sidecar/
+
+# Service account (sensitive)
+gcp-service-account.json
+
+# Temporary files
+*.tmp
+*.temp
+
+# Node modules (if any)
+node_modules/
+
+# Logs
+*.log 
