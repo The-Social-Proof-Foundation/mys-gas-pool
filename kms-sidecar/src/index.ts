@@ -25,13 +25,6 @@ async function main() {
     // Get public key and address - matches interface expected by SidecarTxSigner
     app.get('/get-pubkey-address', async (req: Request, res: Response) => {
         try {
-            console.log('=== GET PUBKEY ADDRESS REQUEST ===');
-            console.log('Environment check:');
-            console.log('- GOOGLE_CLOUD_PROJECT_ID:', process.env.GOOGLE_CLOUD_PROJECT_ID ? 'SET' : 'MISSING');
-            console.log('- GOOGLE_APPLICATION_CREDENTIALS_JSON:', process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ? 'SET' : 'MISSING');
-            console.log('- GOOGLE_APPLICATION_CREDENTIALS:', process.env.GOOGLE_APPLICATION_CREDENTIALS ? 'SET' : 'MISSING');
-            console.log('- Key path:', keyPath);
-            
             if (!PROJECT_ID) {
                 console.error('GOOGLE_CLOUD_PROJECT_ID is required but not set');
                 return res.status(500).json({ 
@@ -51,7 +44,6 @@ async function main() {
             }
             
             const mysPubkeyAddress = publicKey.toMysAddress();
-            console.log('Success! Returning address:', mysPubkeyAddress);
             res.json({ mysPubkeyAddress });
         } catch (error) {
             console.error('Error getting public key:', error);
@@ -88,16 +80,6 @@ async function main() {
     
     app.listen(port, () => {
         console.log(`GCP KMS Sidecar listening on port ${port}`);
-        console.log(`Project: ${PROJECT_ID}`);
-        console.log(`Key: ${keyPath}`);
-        console.log('=== ENVIRONMENT VARIABLES ===');
-        console.log(`GOOGLE_CLOUD_PROJECT_ID: ${PROJECT_ID || 'NOT SET'}`);
-        console.log(`KMS_LOCATION: ${LOCATION}`);
-        console.log(`KMS_KEYRING: ${KEYRING}`);
-        console.log(`KMS_KEY_NAME: ${KEY_NAME}`);
-        console.log(`GOOGLE_APPLICATION_CREDENTIALS_JSON: ${process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ? 'SET' : 'NOT SET'}`);
-        console.log(`GOOGLE_APPLICATION_CREDENTIALS: ${process.env.GOOGLE_APPLICATION_CREDENTIALS || 'NOT SET'}`);
-        console.log('=============================');
     });
 }
 

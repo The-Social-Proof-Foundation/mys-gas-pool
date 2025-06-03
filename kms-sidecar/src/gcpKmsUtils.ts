@@ -13,11 +13,6 @@ import { secp256k1 } from '@noble/curves/secp256k1';
 
 // Compress uncompressed public key from raw bytes
 function compressPublicKey(uncompressedKey: Uint8Array): Uint8Array {
-    console.log('=== COMPRESS PUBLIC KEY DEBUG ===');
-    console.log('Input bytes length:', uncompressedKey.length);
-    console.log('First 10 bytes:', Array.from(uncompressedKey.slice(0, 10)).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '));
-    console.log('Last 5 bytes:', Array.from(uncompressedKey.slice(-5)).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '));
-
     if (uncompressedKey.length !== 65) {
         throw new Error(`Unexpected length for an uncompressed public key: ${uncompressedKey.length}, expected 65`);
     }
@@ -37,24 +32,16 @@ function compressPublicKey(uncompressedKey: Uint8Array): Uint8Array {
     const yLastByte = yCoord[31]; // Last byte of Y coordinate
     const parityByte = yLastByte % 2 === 0 ? 0x02 : 0x03;
 
-    console.log('X coordinate:', Array.from(xCoord).map(b => b.toString(16).padStart(2, '0')).join(''));
-    console.log('Y coordinate last byte:', yLastByte.toString(16).padStart(2, '0'));
-    console.log('Parity byte:', parityByte.toString(16).padStart(2, '0'));
-
     return new Uint8Array([parityByte, ...xCoord]);
 }
 
 // Create Google Cloud KMS client
 function createGCPKMSClient(): KeyManagementServiceClient {
-    console.log('=== CREATING GCP KMS CLIENT ===');
-    
     // Option 1: Base64 encoded JSON credentials (preferred for Railway)
     if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-        console.log('Using GOOGLE_APPLICATION_CREDENTIALS_JSON');
         try {
             const credentialsJson = Buffer.from(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON, 'base64').toString('utf-8');
             const credentials = JSON.parse(credentialsJson);
-            console.log('Credentials parsed successfully, project_id:', credentials.project_id);
             return new KeyManagementServiceClient({
                 credentials: credentials,
                 projectId: credentials.project_id
@@ -67,15 +54,12 @@ function createGCPKMSClient(): KeyManagementServiceClient {
     
     // Option 2: File path (for local development)
     if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-        console.log('Using GOOGLE_APPLICATION_CREDENTIALS file path:', process.env.GOOGLE_APPLICATION_CREDENTIALS);
         return new KeyManagementServiceClient({
             keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
         });
     }
     
     // Option 3: Default credentials (fallback)
-    console.warn('No explicit credentials found, using default application credentials');
-    console.log('This may fail in production environments like Railway');
     return new KeyManagementServiceClient();
 }
 
@@ -83,43 +67,21 @@ export async function getPublicKey(keyPath: string): Promise<Secp256k1PublicKey 
     const client = createGCPKMSClient();
 
     try {
-        console.log('Attempting to get public key for path:', keyPath);
         const [publicKeyResponse] = await client.getPublicKey({ name: keyPath });
         
-        console.log('KMS Response received, checking for PEM...');
         if (!publicKeyResponse.pem) {
-            console.error('No PEM public key found in KMS response');
             throw new Error('No PEM public key found in response');
         }
 
-        console.log('PEM found, parsing...');
         // Parse PEM format to get DER bytes
         const pemContent = publicKeyResponse.pem
             .replace('-----BEGIN PUBLIC KEY-----', '')
             .replace('-----END PUBLIC KEY-----', '')
             .replace(/\n/g, '');
         
-        console.log('PEM content length:', pemContent.length);
         const publicKeyBytes = Buffer.from(pemContent, 'base64');
-        console.log('DER bytes length:', publicKeyBytes.length);
-        console.log('DER bytes (hex):', publicKeyBytes.toString('hex'));
         
-        // According to RFC 5280 and X.509 standards, for SECP256K1 public keys:
-        // The DER structure is: SEQUENCE { SEQUENCE { OID, NULL }, BIT STRING }
-        // The BIT STRING contains: unused_bits_byte + 0x04 + X_coord(32) + Y_coord(32)
-        
-        // For SECP256K1, the OID is 1.3.132.0.10 and the total structure should be:
-        // 30 56 (SEQUENCE, 86 bytes)
-        //   30 10 (SEQUENCE, 16 bytes) - AlgorithmIdentifier  
-        //     06 07 2A8648CE3D020106 (OID for id-ecPublicKey)
-        //     06 05 2B8104000A (OID for secp256k1: 1.3.132.0.10)
-        //   03 42 (BIT STRING, 66 bytes)
-        //     00 (unused bits)
-        //     04 (uncompressed point indicator)
-        //     [32 bytes X coordinate]
-        //     [32 bytes Y coordinate]
-        
-        // Find the BIT STRING (tag 0x03)
+        // Find the BIT STRING (tag 0x03) containing the public key
         let bitStringIndex = -1;
         for (let i = 0; i < publicKeyBytes.length - 1; i++) {
             if (publicKeyBytes[i] === 0x03) {
@@ -146,13 +108,9 @@ export async function getPublicKey(keyPath: string): Promise<Secp256k1PublicKey 
         }
         
         const uncompressedKey = publicKeyBytes.slice(publicKeyStart, publicKeyEnd);
-        console.log('Extracted uncompressed key length:', uncompressedKey.length);
-        console.log('Uncompressed key (hex):', Array.from(uncompressedKey).map(b => b.toString(16).padStart(2, '0')).join(''));
-        
         const compressedKey = compressPublicKey(uncompressedKey);
         const mysPublicKey = new Secp256k1PublicKey(compressedKey);
         
-        console.log('SUCCESS! MySocial Public Key Address:', mysPublicKey.toMysAddress());
         return mysPublicKey;
         
     } catch (error) {
@@ -257,9 +215,6 @@ export async function signAndVerify(txBytes: Uint8Array, keyPath: string): Promi
     // Create digest using blake2b hash
     const digest = blake2b(intentMessage, { dkLen: 32 });
     
-    console.log('TX Bytes:', toB64(txBytes));
-    console.log('Digest:', toB64(digest));
-    
     try {
         // Sign the digest using Google Cloud KMS
         const [signResponse] = await client.asymmetricSign({
@@ -290,15 +245,11 @@ export async function signAndVerify(txBytes: Uint8Array, keyPath: string): Promi
             originalPublicKey
         );
         
-        console.log('Serialized Signature:', serializedSignature);
-        
         // Verify signature with MySocial
-        console.log('Verifying MySocial Signature against TX');
         const isValid = await originalPublicKey.verifyTransaction(
             txBytes,
             serializedSignature
         );
-        console.log('MySocial Signature valid:', isValid);
         
         return serializedSignature;
     } catch (error) {
