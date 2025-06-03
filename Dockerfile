@@ -48,4 +48,3 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 
 # Use startup script
 CMD ["/usr/local/bin/start.sh"]
-
