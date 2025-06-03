@@ -113,33 +113,149 @@ export async function getPublicKey(keyPath: string): Promise<Secp256k1PublicKey 
         console.log('DER element parsed, checking structure...');
         console.log('DER tagClass:', derElement.tagClass);
         console.log('DER construction:', derElement.construction);
-        console.log('DER components exists:', !!(derElement as any).components);
-        console.log('DER components length:', (derElement as any).components?.length);
+        console.log('DER tagNumber:', derElement.tagNumber);
+        console.log('DER value type:', typeof derElement.value);
+        console.log('DER value length:', derElement.value?.length);
+
+        // Try to access the sequence components differently
+        let components: any[] | undefined;
+        
+        // Method 1: Direct access to components (original approach)
+        if ((derElement as any).components) {
+            components = (derElement as any).components;
+            console.log('Found components via direct access, length:', components?.length);
+        } 
+        // Method 2: Access via sequence property
+        else if ((derElement as any).sequence) {
+            components = (derElement as any).sequence;
+            console.log('Found components via sequence property, length:', components?.length);
+        }
+        // Method 3: Parse as ASN.1 sequence manually
+        else if (derElement.construction === asn1ts.ASN1Construction.constructed) {
+            console.log('Attempting manual sequence parsing...');
+            try {
+                // Try to decode as a sequence
+                const sequence = new asn1ts.DERElement();
+                sequence.fromBytes(publicKeyBytes);
+                if (sequence.value && sequence.value.length > 0) {
+                    // Create new DER elements from the value
+                    let offset = 0;
+                    components = [];
+                    while (offset < sequence.value.length) {
+                        try {
+                            const element = new asn1ts.DERElement();
+                            const remainingBytes = sequence.value.slice(offset);
+                            element.fromBytes(remainingBytes);
+                            components.push(element);
+                            // Use a more reliable way to calculate element length
+                            const elementLength = (element as any).length || (element as any).encodedLength || remainingBytes.length;
+                            offset += elementLength;
+                            if (offset >= sequence.value.length) break;
+                        } catch (e) {
+                            console.log('Failed to parse element at offset', offset, ':', e);
+                            break;
+                        }
+                    }
+                    console.log('Manual parsing found', components?.length || 0, 'components');
+                }
+            } catch (e) {
+                console.log('Manual sequence parsing failed:', e);
+            }
+        }
+
+        if (!components || components.length === 0) {
+            console.error('Could not find any components in DER structure');
+            console.log('Raw DER bytes (first 20):', Array.from(publicKeyBytes.slice(0, 20)).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '));
+            
+            // Try a completely different approach - raw byte parsing
+            console.log('Attempting raw byte parsing of SECP256K1 public key...');
+            try {
+                // For SECP256K1 public keys, the DER structure typically ends with 65 bytes (0x04 + 32 + 32)
+                // Let's try to find the public key bytes directly
+                const derBytes = Array.from(publicKeyBytes);
+                console.log('Full DER bytes:', derBytes.map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '));
+                
+                // Look for the 0x04 prefix which indicates an uncompressed public key
+                const pubkeyStartIndex = derBytes.findIndex((byte, index) => {
+                    // Look for 0x04 followed by what should be 64 bytes
+                    return byte === 0x04 && index + 64 < derBytes.length;
+                });
+                
+                if (pubkeyStartIndex !== -1) {
+                    console.log('Found potential public key at index:', pubkeyStartIndex);
+                    const pubkeyBytes = publicKeyBytes.slice(pubkeyStartIndex, pubkeyStartIndex + 65);
+                    console.log('Extracted public key bytes length:', pubkeyBytes.length);
+                    
+                    if (pubkeyBytes.length === 65 && pubkeyBytes[0] === 0x04) {
+                        // Convert to bit array format expected by compressPublicKeyClamped
+                        const rawPublicKey = new Uint8ClampedArray(520); // 65 bytes * 8 bits
+                        for (let i = 0; i < 65; i++) {
+                            for (let bit = 0; bit < 8; bit++) {
+                                rawPublicKey[i * 8 + bit] = (pubkeyBytes[i] >> (7 - bit)) & 1;
+                            }
+                        }
+                        
+                        console.log('Successfully converted to bit array, compressing...');
+                        const compressedKey = compressPublicKeyClamped(rawPublicKey);
+                        const mysPublicKey = new Secp256k1PublicKey(compressedKey);
+                        
+                        console.log('SUCCESS! MySocial Public Key Address:', mysPublicKey.toMysAddress());
+                        return mysPublicKey;
+                    }
+                }
+            } catch (rawParseError) {
+                console.log('Raw parsing also failed:', rawParseError);
+            }
+            
+            throw new Error('Could not parse DER structure - no components found');
+        }
+
+        console.log('Found', components.length, 'components in DER structure');
 
         // Extract public key from ASN.1 DER structure
         if (
             derElement.tagClass === asn1ts.ASN1TagClass.universal &&
-            derElement.construction === asn1ts.ASN1Construction.constructed
+            derElement.construction === asn1ts.ASN1Construction.constructed &&
+            components && components.length >= 2
         ) {
-            const components = (derElement as any).components;
-            if (!components || components.length < 2) {
-                throw new Error(`Invalid DER structure: components length is ${components?.length}`);
-            }
-            
             const publicKeyElement = components[1];
-            const rawPublicKey = publicKeyElement.bitString;
+            console.log('Public key element type:', typeof publicKeyElement);
+            console.log('Public key element properties:', Object.keys(publicKeyElement));
+            
+            let rawPublicKey: Uint8ClampedArray | undefined;
+            
+            // Try different ways to access the bit string
+            if (publicKeyElement.bitString) {
+                rawPublicKey = publicKeyElement.bitString;
+                console.log('Found bitString property');
+            } else if ((publicKeyElement as any).value && (publicKeyElement as any).value instanceof Uint8Array) {
+                // Convert Uint8Array to Uint8ClampedArray if needed
+                const valueArray = (publicKeyElement as any).value as Uint8Array;
+                rawPublicKey = new Uint8ClampedArray(valueArray.length * 8);
+                // Convert bytes to bits
+                for (let i = 0; i < valueArray.length; i++) {
+                    for (let bit = 0; bit < 8; bit++) {
+                        rawPublicKey[i * 8 + bit] = (valueArray[i] >> (7 - bit)) & 1;
+                    }
+                }
+                console.log('Converted value to bit string');
+            }
 
             if (!rawPublicKey) {
+                console.error('Could not extract bit string from public key element');
+                console.log('Available properties:', Object.keys(publicKeyElement));
                 throw new Error('Could not extract public key from DER structure');
             }
 
+            console.log('Raw public key bit string length:', rawPublicKey.length);
             const compressedKey = compressPublicKeyClamped(rawPublicKey);
             const mysPublicKey = new Secp256k1PublicKey(compressedKey);
             
             console.log('MySocial Public Key Address:', mysPublicKey.toMysAddress());
             return mysPublicKey;
         } else {
-            throw new Error('Unexpected ASN.1 structure');
+            const componentsLength = components ? components.length : 0;
+            throw new Error(`Unexpected ASN.1 structure: tagClass=${derElement.tagClass}, construction=${derElement.construction}, components=${componentsLength}`);
         }
     } catch (error) {
         console.error('Error during get public key:', error);
