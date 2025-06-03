@@ -34,6 +34,7 @@ struct SignatureResponse {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MysAddressResponse {
+    #[serde(rename = "mysPubkeyAddress")]
     mys_pubkey_address: MysAddress,
 }
 
@@ -46,20 +47,32 @@ pub struct SidecarTxSigner {
 impl SidecarTxSigner {
     pub async fn new(sidecar_url: String) -> Arc<Self> {
         let client = Client::new();
+        let url = format!("{}/{}", sidecar_url, "get-pubkey-address");
+        println!("Requesting KMS sidecar address from: {}", url);
+        
         let resp = client
-            .get(format!("{}/{}", sidecar_url, "get-pubkey-address"))
+            .get(&url)
             .send()
             .await
-            .unwrap_or_else(|err| panic!("Failed to get pubkey address: {}", err));
-        let mys_address = resp
-            .json::<MysAddressResponse>()
-            .await
-            .unwrap_or_else(|err| panic!("Failed to parse address response: {}", err))
-            .mys_pubkey_address;
+            .unwrap_or_else(|err| panic!("Failed to get pubkey address from {}: {}", url, err));
+            
+        let status = resp.status();
+        if !status.is_success() {
+            let error_text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            panic!("KMS sidecar returned error status {}: {}", status, error_text);
+        }
+        
+        let response_text = resp.text().await
+            .unwrap_or_else(|err| panic!("Failed to read response body from {}: {}", url, err));
+        println!("KMS sidecar response: {}", response_text);
+        
+        let mys_address: MysAddressResponse = serde_json::from_str(&response_text)
+            .unwrap_or_else(|err| panic!("Failed to parse address response from {}: {}. Response was: {}", url, err, response_text));
+            
         Arc::new(Self {
             sidecar_url,
             client,
-            mys_address,
+            mys_address: mys_address.mys_pubkey_address,
         })
     }
 }
