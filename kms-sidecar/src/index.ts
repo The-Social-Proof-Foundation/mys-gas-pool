@@ -7,7 +7,7 @@ async function main() {
     const app = express();
     app.use(express.json());
     
-    const port = process.env.PORT || 3006;
+    const port = process.env.PORT || 3000;
     
     // Environment variables for Google Cloud KMS
     const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT_ID;
