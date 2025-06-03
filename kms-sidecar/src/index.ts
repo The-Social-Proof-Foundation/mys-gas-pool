@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import express from 'express';
+import express, { Request, Response } from 'express';
 import { fromB64 } from '@socialproof/mys/utils';
 import { getPublicKey, signAndVerify } from './gcpKmsUtils';
 
@@ -18,12 +18,12 @@ async function main() {
     const keyPath = `projects/${PROJECT_ID}/locations/${LOCATION}/keyRings/${KEYRING}/cryptoKeys/${KEY_NAME}/cryptoKeyVersions/1`;
     
     // Health check endpoint
-    app.get('/', (req, res) => {
+    app.get('/', (req: Request, res: Response) => {
         res.json({ status: 'healthy', service: 'MySocial Gas Pool GCP KMS Sidecar' });
     });
     
     // Get public key and address - matches interface expected by SidecarTxSigner
-    app.get('/get-pubkey-address', async (req, res) => {
+    app.get('/get-pubkey-address', async (req: Request, res: Response) => {
         try {
             const publicKey = await getPublicKey(keyPath);
             
@@ -40,7 +40,7 @@ async function main() {
     });
     
     // Sign transaction - matches interface expected by SidecarTxSigner
-    app.post('/sign-transaction', async (req, res) => {
+    app.post('/sign-transaction', async (req: Request, res: Response) => {
         try {
             const { txBytes } = req.body;
             
