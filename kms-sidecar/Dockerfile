@@ -6,9 +6,8 @@ WORKDIR /app
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Install dependencies
-RUN npm ci --only=production
-RUN npm install -g typescript
+# Install all dependencies (including devDependencies for building)
+RUN npm ci
 
 # Copy source code
 COPY src ./src
@@ -16,7 +15,10 @@ COPY src ./src
 # Build TypeScript
 RUN npm run build
 
-# Expose port
+# Remove devDependencies after build
+RUN npm prune --production
+
+# Expose port (Railway will set PORT env var at runtime)
 EXPOSE 3000
 
 # Start the application
