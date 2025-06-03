@@ -1,6 +1,6 @@
 [build]
 builder = "docker"
-dockerfilePath = "docker/Dockerfile"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "mys-gas-station --config-path /etc/gas-station/config.yaml"
