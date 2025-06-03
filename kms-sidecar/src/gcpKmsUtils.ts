@@ -80,23 +80,35 @@ export async function getPublicKey(keyPath: string): Promise<Secp256k1PublicKey 
     const client = createGCPKMSClient();
 
     try {
+        console.log('Attempting to get public key for path:', keyPath);
         const [publicKeyResponse] = await client.getPublicKey({ name: keyPath });
         
+        console.log('KMS Response received, checking for PEM...');
         if (!publicKeyResponse.pem) {
+            console.error('No PEM public key found in KMS response');
             throw new Error('No PEM public key found in response');
         }
 
+        console.log('PEM found, parsing...');
         // Parse PEM format to get DER bytes
         const pemContent = publicKeyResponse.pem
             .replace('-----BEGIN PUBLIC KEY-----', '')
             .replace('-----END PUBLIC KEY-----', '')
             .replace(/\n/g, '');
         
+        console.log('PEM content length:', pemContent.length);
         const publicKeyBytes = Buffer.from(pemContent, 'base64');
+        console.log('DER bytes length:', publicKeyBytes.length);
         
         // Parse DER format
         const derElement = new asn1ts.DERElement();
         derElement.fromBytes(publicKeyBytes);
+
+        console.log('DER element parsed, checking structure...');
+        console.log('DER tagClass:', derElement.tagClass);
+        console.log('DER construction:', derElement.construction);
+        console.log('DER components exists:', !!(derElement as any).components);
+        console.log('DER components length:', (derElement as any).components?.length);
 
         // Extract public key from ASN.1 DER structure
         if (
@@ -104,6 +116,10 @@ export async function getPublicKey(keyPath: string): Promise<Secp256k1PublicKey 
             derElement.construction === asn1ts.ASN1Construction.constructed
         ) {
             const components = (derElement as any).components;
+            if (!components || components.length < 2) {
+                throw new Error(`Invalid DER structure: components length is ${components?.length}`);
+            }
+            
             const publicKeyElement = components[1];
             const rawPublicKey = publicKeyElement.bitString;
 
