@@ -49,23 +49,28 @@ function compressPublicKeyClamped(uncompressedKey: Uint8ClampedArray): Uint8Arra
 
 // Create Google Cloud KMS client
 function createGCPKMSClient(): KeyManagementServiceClient {
+    console.log('=== CREATING GCP KMS CLIENT ===');
+    
     // Option 1: Base64 encoded JSON credentials (preferred for Railway)
     if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+        console.log('Using GOOGLE_APPLICATION_CREDENTIALS_JSON');
         try {
             const credentialsJson = Buffer.from(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON, 'base64').toString('utf-8');
             const credentials = JSON.parse(credentialsJson);
+            console.log('Credentials parsed successfully, project_id:', credentials.project_id);
             return new KeyManagementServiceClient({
                 credentials: credentials,
                 projectId: credentials.project_id
             });
         } catch (error) {
             console.error('Failed to parse base64 credentials:', error);
-            throw new Error('Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON format');
+            throw new Error(`Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON format: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
     
     // Option 2: File path (for local development)
     if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+        console.log('Using GOOGLE_APPLICATION_CREDENTIALS file path:', process.env.GOOGLE_APPLICATION_CREDENTIALS);
         return new KeyManagementServiceClient({
             keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
         });
@@ -73,6 +78,7 @@ function createGCPKMSClient(): KeyManagementServiceClient {
     
     // Option 3: Default credentials (fallback)
     console.warn('No explicit credentials found, using default application credentials');
+    console.log('This may fail in production environments like Railway');
     return new KeyManagementServiceClient();
 }
 
