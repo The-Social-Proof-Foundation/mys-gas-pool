@@ -253,19 +253,7 @@ export async function signAndVerify(txBytes: Uint8Array, keyPath: string): Promi
         );
         
         console.log('Serialized signature created, length:', serializedSignature.length);
-        
-        // Verify signature with MySocial
-        const isValid = await originalPublicKey.verifyTransaction(
-            txBytes,
-            serializedSignature
-        );
-        
-        console.log('Signature verification result:', isValid);
-        
-        if (!isValid) {
-            console.error('Signature verification failed!');
-            return undefined;
-        }
+        console.log('Signature creation successful - letting gas station handle verification');
         
         return serializedSignature;
     } catch (error) {
