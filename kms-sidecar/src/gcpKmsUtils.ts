@@ -189,15 +189,12 @@ async function getSerializedSignature(
     signature: Uint8Array,
     mysPublicKey: Secp256k1PublicKey
 ): Promise<string> {
-    const flag = mysPublicKey.flag();
+    // For MySocial network, always use Secp256k1 scheme with flag 0x01
+    const signatureScheme: SignatureScheme = 'Secp256k1';
     
-    // Check if flag is one of the allowed values and cast to SignatureFlag
-    const allowedFlags: SignatureFlag[] = [0, 1, 2, 3, 5];
-    const isAllowedFlag = allowedFlags.includes(flag as SignatureFlag);
-    
-    const signatureScheme: SignatureScheme = isAllowedFlag
-        ? SIGNATURE_FLAG_TO_SCHEME[flag as SignatureFlag]
-        : 'Secp256k1';
+    console.log('Creating signature with scheme:', signatureScheme);
+    console.log('Public key flag:', mysPublicKey.flag());
+    console.log('Public key bytes length:', mysPublicKey.toRawBytes().length);
     
     return toSerializedSignature({
         signatureScheme,
@@ -209,13 +206,17 @@ async function getSerializedSignature(
 export async function signAndVerify(txBytes: Uint8Array, keyPath: string): Promise<string | undefined> {
     const client = createGCPKMSClient();
     
-    // Add intent message to transaction bytes
-    const intentMessage = messageWithIntent('TransactionData' as any, txBytes);
-    
-    // Create digest using blake2b hash
-    const digest = blake2b(intentMessage, { dkLen: 32 });
-    
     try {
+        console.log('Starting signature process for transaction bytes length:', txBytes.length);
+        
+        // Add intent message to transaction bytes
+        const intentMessage = messageWithIntent('TransactionData' as any, txBytes);
+        console.log('Intent message created, length:', intentMessage.length);
+        
+        // Create digest using blake2b hash
+        const digest = blake2b(intentMessage, { dkLen: 32 });
+        console.log('Digest created, length:', digest.length);
+        
         // Sign the digest using Google Cloud KMS
         const [signResponse] = await client.asymmetricSign({
             name: keyPath,
@@ -230,14 +231,20 @@ export async function signAndVerify(txBytes: Uint8Array, keyPath: string): Promi
             ? signResponse.signature 
             : new Uint8Array(Buffer.from(signResponse.signature as string, 'base64'));
         
+        console.log('Raw KMS signature length:', signature.length);
+        
         // Get the public key
         const originalPublicKey = await getPublicKey(keyPath);
         if (!originalPublicKey) {
             throw new Error('Could not retrieve public key');
         }
         
+        console.log('Public key retrieved successfully');
+        console.log('Public key address:', originalPublicKey.toMysAddress());
+        
         // Convert DER signature to concatenated format
         const concatenatedSignature = getConcatenatedSignature(signature);
+        console.log('Concatenated signature length:', concatenatedSignature.length);
         
         // Create serialized signature for MySocial
         const serializedSignature = await getSerializedSignature(
@@ -245,15 +252,25 @@ export async function signAndVerify(txBytes: Uint8Array, keyPath: string): Promi
             originalPublicKey
         );
         
+        console.log('Serialized signature created, length:', serializedSignature.length);
+        
         // Verify signature with MySocial
         const isValid = await originalPublicKey.verifyTransaction(
             txBytes,
             serializedSignature
         );
         
+        console.log('Signature verification result:', isValid);
+        
+        if (!isValid) {
+            console.error('Signature verification failed!');
+            return undefined;
+        }
+        
         return serializedSignature;
     } catch (error) {
         console.error('Error during sign/verify:', error);
+        console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
         return undefined;
     }
 } 
