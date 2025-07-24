@@ -1,5 +1,5 @@
 import { KeyManagementServiceClient } from '@google-cloud/kms';
-import { Secp256k1PublicKey } from '@socialproof/mys/keypairs/secp256k1';
+import { Secp256r1PublicKey } from '@socialproof/mys/keypairs/secp256r1';
 import { fromB64, toB64 } from '@socialproof/mys/utils';
 import {
     toSerializedSignature,
@@ -9,7 +9,7 @@ import {
     messageWithIntent,
 } from '@socialproof/mys/cryptography';
 import { blake2b } from '@noble/hashes/blake2b';
-import { secp256k1 } from '@noble/curves/secp256k1';
+import { p256 } from '@noble/curves/p256';
 
 // Compress uncompressed public key from raw bytes
 function compressPublicKey(uncompressedKey: Uint8Array): Uint8Array {
@@ -63,7 +63,7 @@ function createGCPKMSClient(): KeyManagementServiceClient {
     return new KeyManagementServiceClient();
 }
 
-export async function getPublicKey(keyPath: string): Promise<Secp256k1PublicKey | undefined> {
+export async function getPublicKey(keyPath: string): Promise<Secp256r1PublicKey | undefined> {
     const client = createGCPKMSClient();
 
     try {
@@ -109,7 +109,7 @@ export async function getPublicKey(keyPath: string): Promise<Secp256k1PublicKey 
         
         const uncompressedKey = publicKeyBytes.slice(publicKeyStart, publicKeyEnd);
         const compressedKey = compressPublicKey(uncompressedKey);
-        const mysPublicKey = new Secp256k1PublicKey(compressedKey);
+        const mysPublicKey = new Secp256r1PublicKey(compressedKey);
         
         return mysPublicKey;
         
@@ -175,32 +175,44 @@ function getConcatenatedSignature(signature: Uint8Array): Uint8Array {
         sBytes = padded;
     }
     
-    // Convert to BigInt for secp256k1 library
-    const r = BigInt('0x' + Array.from(rBytes).map(b => b.toString(16).padStart(2, '0')).join(''));
-    const s = BigInt('0x' + Array.from(sBytes).map(b => b.toString(16).padStart(2, '0')).join(''));
+    // Convert to BigInt for p256 library
+    const r = BigInt('0x' + Array.from(rBytes).map((b: number) => b.toString(16).padStart(2, '0')).join(''));
+    const s = BigInt('0x' + Array.from(sBytes).map((b: number) => b.toString(16).padStart(2, '0')).join(''));
     
-    const secp256k1Sig = new secp256k1.Signature(r, s);
+    const p256Sig = new p256.Signature(r, s);
     
-    return secp256k1Sig.normalizeS().toCompactRawBytes();
+    return p256Sig.normalizeS().toCompactRawBytes();
 }
 
 // Create serialized signature for MySocial
 async function getSerializedSignature(
     signature: Uint8Array,
-    mysPublicKey: Secp256k1PublicKey
+    mysPublicKey: Secp256r1PublicKey
 ): Promise<string> {
-    // For MySocial network, always use Secp256k1 scheme with flag 0x01
-    const signatureScheme: SignatureScheme = 'Secp256k1';
-    
-    console.log('Creating signature with scheme:', signatureScheme);
+    console.log('Creating signature with scheme: Secp256r1');
     console.log('Public key flag:', mysPublicKey.flag());
     console.log('Public key bytes length:', mysPublicKey.toRawBytes().length);
+    console.log('Signature bytes length:', signature.length);
     
-    return toSerializedSignature({
-        signatureScheme,
-        signature,
-        publicKey: mysPublicKey,
-    });
+    // MySocial signature format: [flag][signature][pubkey]
+    // For Secp256r1: flag = 0x02, signature = 64 bytes, pubkey = 33 bytes
+    const flag = 0x02; // Secp256r1 flag
+    const pubkeyBytes = mysPublicKey.toRawBytes();
+    
+    console.log('Using flag:', flag);
+    console.log('Pubkey bytes:', Array.from(pubkeyBytes).map((b: number) => b.toString(16).padStart(2, '0')).join(''));
+    console.log('Signature bytes:', Array.from(signature).map((b: number) => b.toString(16).padStart(2, '0')).join(''));
+    
+    // Manually construct the signature in the correct format
+    const fullSignature = new Uint8Array(1 + signature.length + pubkeyBytes.length);
+    fullSignature[0] = flag;
+    fullSignature.set(signature, 1);
+    fullSignature.set(pubkeyBytes, 1 + signature.length);
+    
+    console.log('Full signature length:', fullSignature.length);
+    console.log('Full signature (first 20 bytes):', Array.from(fullSignature.slice(0, 20)).map((b: number) => b.toString(16).padStart(2, '0')).join(''));
+    
+    return toB64(fullSignature);
 }
 
 export async function signAndVerify(txBytes: Uint8Array, keyPath: string): Promise<string | undefined> {
