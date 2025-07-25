@@ -64,13 +64,19 @@ async function main() {
                 return res.status(400).json({ error: 'Missing transaction bytes' });
             }
             
+            console.log('Received sign-transaction request, txBytes length:', txBytes.length);
+            
             const txBytesArray = fromB64(txBytes);
             const signature = await signAndVerify(txBytesArray, keyPath);
             
+            console.log('signAndVerify returned:', signature ? `signature of length ${signature.length}` : 'undefined');
+            
             if (!signature) {
+                console.error('signAndVerify returned undefined or empty signature');
                 return res.status(500).json({ error: 'Failed to sign transaction' });
             }
             
+            console.log('Sending successful response with signature');
             res.json({ signature });
         } catch (error) {
             console.error('Error signing transaction:', error);

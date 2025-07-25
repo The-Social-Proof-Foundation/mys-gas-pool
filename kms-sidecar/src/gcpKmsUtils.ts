@@ -9,7 +9,6 @@ import {
     messageWithIntent,
 } from '@socialproof/mys/cryptography';
 import { blake2b } from '@noble/hashes/blake2b';
-import { p256 } from '@noble/curves/p256';
 
 // Compress uncompressed public key from raw bytes
 function compressPublicKey(uncompressedKey: Uint8Array): Uint8Array {
@@ -175,13 +174,13 @@ function getConcatenatedSignature(signature: Uint8Array): Uint8Array {
         sBytes = padded;
     }
     
-    // Convert to BigInt for p256 library
-    const r = BigInt('0x' + Array.from(rBytes).map((b: number) => b.toString(16).padStart(2, '0')).join(''));
-    const s = BigInt('0x' + Array.from(sBytes).map((b: number) => b.toString(16).padStart(2, '0')).join(''));
+    // For P-256 (Secp256r1), just concatenate r and s directly
+    // Both r and s should be 32 bytes each for a total of 64 bytes
+    const concatenated = new Uint8Array(64);
+    concatenated.set(rBytes, 0);
+    concatenated.set(sBytes, 32);
     
-    const p256Sig = new p256.Signature(r, s);
-    
-    return p256Sig.normalizeS().toCompactRawBytes();
+    return concatenated;
 }
 
 // Create serialized signature for MySocial
@@ -195,15 +194,14 @@ async function getSerializedSignature(
     console.log('Signature bytes length:', signature.length);
     
     // MySocial signature format: [flag][signature][pubkey]
-    // For Secp256r1: flag = 0x02, signature = 64 bytes, pubkey = 33 bytes
-    const flag = 0x02; // Secp256r1 flag
+    // Secp256r1: flag = 0x02, signature = 64 bytes, pubkey = 33 bytes
+    const flag = 0x02;
     const pubkeyBytes = mysPublicKey.toRawBytes();
     
     console.log('Using flag:', flag);
     console.log('Pubkey bytes:', Array.from(pubkeyBytes).map((b: number) => b.toString(16).padStart(2, '0')).join(''));
     console.log('Signature bytes:', Array.from(signature).map((b: number) => b.toString(16).padStart(2, '0')).join(''));
     
-    // Manually construct the signature in the correct format
     const fullSignature = new Uint8Array(1 + signature.length + pubkeyBytes.length);
     fullSignature[0] = flag;
     fullSignature.set(signature, 1);
