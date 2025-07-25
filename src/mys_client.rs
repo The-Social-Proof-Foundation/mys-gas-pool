@@ -67,7 +67,7 @@ impl MysClient {
             let page = retry_forever!(async {
                 self.mys_client
                     .coin_read_api()
-                    .get_coins(address, None, cursor.clone(), None)
+                    .get_coins(address, Some(GAS::type_tag().to_string()), cursor.clone(), None)
                     .await
                     .tap_err(|err| debug!("Failed to get owned gas coins: {:?}", err))
             })
