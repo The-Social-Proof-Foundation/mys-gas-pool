@@ -228,10 +228,19 @@ export async function signAndVerify(txBytes: Uint8Array, keyPath: string): Promi
         console.log('Digest created, length:', digest.length);
         
         // Sign the digest using Google Cloud KMS
-        const [signResponse] = await client.asymmetricSign({
+        console.log('Calling GCP KMS asymmetricSign...');
+        const signPromise = client.asymmetricSign({
             name: keyPath,
             data: digest,
         });
+        
+        // Add 10 second timeout to prevent hanging
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('GCP KMS signing timeout after 10 seconds')), 10000);
+        });
+        
+        const [signResponse] = await Promise.race([signPromise, timeoutPromise]) as any;
+        console.log('GCP KMS signing completed successfully');
         
         if (!signResponse.signature) {
             throw new Error('No signature returned from KMS');
