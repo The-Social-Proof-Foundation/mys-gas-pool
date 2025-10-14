@@ -174,6 +174,28 @@ function getConcatenatedSignature(signature: Uint8Array): Uint8Array {
         sBytes = padded;
     }
     
+    // CRITICAL FIX: Normalize s to low-s value
+    // For secp256r1 (P-256), the curve order n is:
+    // n = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+    const SECP256R1_N = BigInt('0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551');
+    const SECP256R1_N_HALF = SECP256R1_N / 2n;
+    
+    // Convert s to BigInt
+    let sBigInt = BigInt('0x' + Array.from(sBytes).map(b => b.toString(16).padStart(2, '0')).join(''));
+    
+    // If s > n/2, replace with n - s (this makes it "low")
+    if (sBigInt > SECP256R1_N_HALF) {
+        console.log('Normalizing high-s signature to low-s');
+        sBigInt = SECP256R1_N - sBigInt;
+        
+        // Convert back to bytes
+        const sHex = sBigInt.toString(16).padStart(64, '0');
+        sBytes = new Uint8Array(32);
+        for (let i = 0; i < 32; i++) {
+            sBytes[i] = parseInt(sHex.substr(i * 2, 2), 16);
+        }
+    }
+    
     // For P-256 (Secp256r1), just concatenate r and s directly
     // Both r and s should be 32 bytes each for a total of 64 bytes
     const concatenated = new Uint8Array(64);
