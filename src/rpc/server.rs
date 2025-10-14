@@ -196,6 +196,12 @@ async fn reserve_gas_impl(
             );
             metrics.num_successful_reserve_gas_requests.inc();
             let response = ReserveGasResponse::new_ok(sponsor, reservation_id, gas_coins);
+            
+            // Debug: Log the serialized JSON response to verify gas_coins are included
+            if let Ok(json_str) = serde_json::to_string_pretty(&response) {
+                debug!("Serialized ReserveGasResponse: {}", json_str);
+            }
+            
             (StatusCode::OK, Json(response))
         }
         Err(err) => {
