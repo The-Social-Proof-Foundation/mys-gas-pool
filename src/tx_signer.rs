@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use fastcrypto::encoding::{Base64, Encoding};
 use reqwest::Client;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{self, json};
 use shared_crypto::intent::{Intent, IntentMessage};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -29,6 +29,12 @@ pub trait TxSigner: Send + Sync {
 #[serde(rename_all = "camelCase")]
 struct SignatureResponse {
     signature: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ErrorResponse {
+    error: String,
 }
 
 #[derive(Deserialize)]
@@ -91,7 +97,26 @@ impl TxSigner for SidecarTxSigner {
             .json(&json!({"txBytes": bytes}))
             .send()
             .await?;
-        let sig_bytes = resp.json::<SignatureResponse>().await?;
+
+        // Check if the response is successful
+        let status = resp.status();
+        if !status.is_success() {
+            let error_text = resp.text().await?;
+            return Err(anyhow!("KMS sidecar returned error status {}: {}", status, error_text));
+        }
+
+        // Get the response text to check its structure
+        let response_text = resp.text().await?;
+
+        // Try to parse as error response first
+        if let Ok(error_resp) = serde_json::from_str::<ErrorResponse>(&response_text) {
+            return Err(anyhow!("KMS sidecar error: {}", error_resp.error));
+        }
+
+        // Try to parse as success response
+        let sig_bytes: SignatureResponse = serde_json::from_str(&response_text)
+            .map_err(|_| anyhow!("Failed to parse KMS sidecar response: {}", response_text))?;
+
         let sig = GenericSignature::from_str(&sig_bytes.signature)
             .map_err(|err| anyhow!(err.to_string()))?;
         Ok(sig)

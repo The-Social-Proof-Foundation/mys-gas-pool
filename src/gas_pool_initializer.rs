@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::config::CoinInitConfig;
-use crate::retry_forever;
 use crate::storage::Storage;
 use crate::mys_client::MysClient;
 use crate::tx_signer::TxSigner;
@@ -24,6 +23,7 @@ use mys_types::MYS_FRAMEWORK_PACKAGE_ID;
 use tap::TapFallible;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
+use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tracing::{debug, error, info};
 
 /// Any coin owned by the sponsor address with balance above target_init_coin_balance * NEW_COIN_BALANCE_FACTOR_THRESHOLD
@@ -99,12 +99,22 @@ impl CoinSplitEnv {
                 budget,
                 rgp,
             );
-            let sig = retry_forever!(async {
+            // Use exponential backoff with jitter to reduce rate limiting issues
+            // Start at 100ms, max at 5 seconds, with jitter
+            let retry_strategy = ExponentialBackoff::from_millis(100)
+                .max_delay(Duration::from_secs(5))
+                .map(jitter);
+
+            let sig = tokio_retry::Retry::spawn(retry_strategy, || async {
                 self.signer
                     .sign_transaction(&tx_data)
                     .await
-                    .tap_err(|err| error!("Failed to sign transaction: {:?}", err))
-            })
+                    .tap_err(|err| {
+                        // Only log the first few characters of the error to identify the type
+                        let error_preview = &format!("{:?}", err)[..100.min(format!("{:?}", err).len())];
+                        error!("Failed to sign transaction: {}...", error_preview);
+                    })
+            }).await
             .unwrap();
             let tx = Transaction::from_generic_sig_data(tx_data, vec![sig]);
             debug!(
