@@ -20,7 +20,6 @@ use mys_types::gas_coin::GAS;
 use mys_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use mys_types::transaction::{Argument, Transaction, TransactionData};
 use mys_types::MYS_FRAMEWORK_PACKAGE_ID;
-use tap::TapFallible;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
@@ -105,19 +104,15 @@ impl CoinSplitEnv {
                 .max_delay(Duration::from_secs(5))
                 .map(jitter);
 
-            let sig = match tokio_retry::Retry::spawn(retry_strategy, || async {
+            let sig = match tokio_retry::Retry::spawn(retry_strategy.clone(), || async {
                 self.signer
                     .sign_transaction(&tx_data)
                     .await
-                    .tap_err(|err| {
-                        // Only log the first few characters of the error to identify the type
-                        let error_preview = &format!("{:?}", err)[..100.min(format!("{:?}", err).len())];
-                        error!("Failed to sign transaction: {}...", error_preview);
-                    })
             }).await {
                 Ok(sig) => sig,
                 Err(err) => {
-                    error!("All signing attempts failed for coin splitting. This coin will be skipped. Error: {:?}", err);
+                    // Only log final failure, not individual retry attempts
+                    debug!("All signing attempts failed for coin splitting, skipping this coin. Error: {:?}", err);
                     // Return empty vector to indicate this coin couldn't be split
                     return vec![];
                 }
@@ -195,7 +190,15 @@ impl GasPoolInitializer {
         coin_init_config: CoinInitConfig,
         signer: Arc<dyn TxSigner>,
     ) -> Self {
-        if !storage.is_initialized().await.unwrap() {
+        let should_run_init = match storage.is_initialized().await {
+            Ok(is_initialized) => !is_initialized,
+            Err(err) => {
+                error!("Failed to check if storage is initialized: {:?}", err);
+                // Assume it needs initialization if we can't check
+                true
+            }
+        };
+        if should_run_init {
             // If the pool has never been initialized, always run once at the beginning to make sure we have enough coins.
             Self::run_once(
                 mys_client.clone(),
@@ -255,11 +258,16 @@ impl GasPoolInitializer {
         signer: &Arc<dyn TxSigner>,
     ) {
         let sponsor_address = signer.get_address();
-        if storage
-            .acquire_init_lock(MAX_INIT_DURATION_SEC)
-            .await
-            .unwrap()
-        {
+        let acquired_lock = match storage.acquire_init_lock(MAX_INIT_DURATION_SEC).await {
+            Ok(acquired) => acquired,
+            Err(err) => {
+                error!("Failed to acquire initialization lock: {:?}", err);
+                // If we can't check the lock, assume we should proceed with caution
+                true
+            }
+        };
+
+        if acquired_lock {
             info!("Acquired init lock. Starting new coin initialization");
         } else {
             info!("Another task is already initializing the pool. Skipping this round");
@@ -280,7 +288,9 @@ impl GasPoolInitializer {
                 "No coins with balance above {} found. Skipping new coin initialization",
                 balance_threshold
             );
-            storage.release_init_lock().await.unwrap();
+            if let Err(err) = storage.release_init_lock().await {
+                error!("Failed to release initialization lock: {:?}", err);
+            }
             return;
         }
         let total_coin_count = Arc::new(AtomicUsize::new(coins.len()));
@@ -304,9 +314,15 @@ impl GasPoolInitializer {
         )
         .await;
         for chunk in result.chunks(5000) {
-            storage.add_new_coins(chunk.to_vec()).await.unwrap();
+            if let Err(err) = storage.add_new_coins(chunk.to_vec()).await {
+                error!("Failed to add new coins to storage: {:?}", err);
+                // Continue trying to add other chunks, but don't crash
+            }
         }
-        storage.release_init_lock().await.unwrap();
+        if let Err(err) = storage.release_init_lock().await {
+            error!("Failed to release initialization lock: {:?}", err);
+            // Don't crash, but this could cause issues with future initialization attempts
+        }
         info!(
             "New coin initialization took {:?}s",
             start.elapsed().as_secs()
@@ -322,19 +338,22 @@ impl GasPoolInitializer {
             env.target_init_coin_balance,
             total_balance / env.target_init_coin_balance,
         );
+
+        // Process coins sequentially to avoid overwhelming the KMS sidecar
+        // Each coin splitting involves multiple signing operations that can take 15+ seconds each
         let mut result = vec![];
         for coin in coins {
-            result.extend(env.enqueue_task(coin));
-        }
-        loop {
-            let Some(task) = env.task_queue.lock().pop_front() else {
-                break;
-            };
-            match task.await {
-                Ok(split_result) => result.extend(split_result),
-                Err(err) => {
-                    error!("Coin splitting task failed: {:?}", err);
-                }
+            if coin.balance <= (env.gas_cost_per_object + env.target_init_coin_balance) * 2 {
+                // Coin doesn't need splitting, add it directly
+                result.push(coin);
+            } else {
+                // Coin needs splitting - process it sequentially
+                info!("Processing coin split for balance: {}", coin.balance);
+                let split_result = env.clone().split_one_gas_coin(coin).await;
+                result.extend(split_result);
+
+                // Add a small delay between coin processing to be gentle on KMS
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
         }
         let new_total_balance: u64 = result.iter().map(|c| c.balance).sum();

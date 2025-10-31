@@ -34,14 +34,26 @@ function compressPublicKey(uncompressedKey: Uint8Array): Uint8Array {
     return new Uint8Array([parityByte, ...xCoord]);
 }
 
-// Create Google Cloud KMS client
+// Cache the GCP KMS client to avoid recreating it for every request
+let gcpKmsClient: KeyManagementServiceClient | null = null;
+
+// Cache public keys to avoid repeated API calls
+const publicKeyCache = new Map<string, Secp256r1PublicKey>();
+
+// Create Google Cloud KMS client (cached)
 function createGCPKMSClient(): KeyManagementServiceClient {
+    if (gcpKmsClient) {
+        return gcpKmsClient;
+    }
+
+    console.log('Creating new GCP KMS client...');
+
     // Option 1: Base64 encoded JSON credentials (preferred for Railway)
     if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
         try {
             const credentialsJson = Buffer.from(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON, 'base64').toString('utf-8');
             const credentials = JSON.parse(credentialsJson);
-            return new KeyManagementServiceClient({
+            gcpKmsClient = new KeyManagementServiceClient({
                 credentials: credentials,
                 projectId: credentials.project_id
             });
@@ -50,19 +62,27 @@ function createGCPKMSClient(): KeyManagementServiceClient {
             throw new Error(`Invalid GOOGLE_APPLICATION_CREDENTIALS_JSON format: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
-    
     // Option 2: File path (for local development)
-    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-        return new KeyManagementServiceClient({
+    else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+        gcpKmsClient = new KeyManagementServiceClient({
             keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
         });
     }
-    
     // Option 3: Default credentials (fallback)
-    return new KeyManagementServiceClient();
+    else {
+        gcpKmsClient = new KeyManagementServiceClient();
+    }
+
+    console.log('GCP KMS client created and cached');
+    return gcpKmsClient;
 }
 
 export async function getPublicKey(keyPath: string): Promise<Secp256r1PublicKey | undefined> {
+    // Check cache first
+    if (publicKeyCache.has(keyPath)) {
+        return publicKeyCache.get(keyPath);
+    }
+
     const client = createGCPKMSClient();
 
     try {
@@ -109,7 +129,11 @@ export async function getPublicKey(keyPath: string): Promise<Secp256r1PublicKey 
         const uncompressedKey = publicKeyBytes.slice(publicKeyStart, publicKeyEnd);
         const compressedKey = compressPublicKey(uncompressedKey);
         const mysPublicKey = new Secp256r1PublicKey(compressedKey);
-        
+
+        // Cache the public key
+        publicKeyCache.set(keyPath, mysPublicKey);
+
+        console.log(`Public key retrieved and cached for ${keyPath}`);
         return mysPublicKey;
         
     } catch (error) {
@@ -251,7 +275,9 @@ export async function signAndVerify(txBytes: Uint8Array, keyPath: string): Promi
                     setTimeout(() => reject(new Error('GCP KMS signing timeout after 15 seconds')), 15000);
                 });
 
+                console.log(`GCP KMS signing attempt ${attempt} started...`);
                 const [signResponse] = await Promise.race([signPromise, timeoutPromise]) as any;
+                console.log(`GCP KMS signing attempt ${attempt} completed`);
 
                 if (!signResponse.signature) {
                     throw new Error('No signature returned from KMS');
@@ -281,12 +307,14 @@ export async function signAndVerify(txBytes: Uint8Array, keyPath: string): Promi
 
             } catch (error) {
                 lastError = error as Error;
+                console.error(`GCP KMS signing attempt ${attempt} failed:`, error instanceof Error ? error.message : error);
+
                 if (attempt < maxRetries) {
                     // Exponential backoff with jitter
-                    const baseDelay = 1000; // 1 second
-                    const maxDelay = 5000; // 5 seconds
+                    const baseDelay = 2000; // 2 seconds (increased for GCP KMS)
+                    const maxDelay = 10000; // 10 seconds
                     const exponentialDelay = Math.min(baseDelay * Math.pow(2, attempt - 1), maxDelay);
-                    const jitter = Math.random() * 1000; // Up to 1 second jitter
+                    const jitter = Math.random() * 2000; // Up to 2 seconds jitter
                     const delay = exponentialDelay + jitter;
 
                     console.warn(`KMS signing attempt ${attempt} failed, retrying in ${Math.round(delay)}ms`);
