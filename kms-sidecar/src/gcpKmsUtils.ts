@@ -236,70 +236,98 @@ async function getSerializedSignature(
 }
 
 export async function signAndVerify(txBytes: Uint8Array, keyPath: string): Promise<string | undefined> {
-    const client = createGCPKMSClient();
-    
+    console.log('=== STARTING SIGNATURE PROCESS ===');
+    console.log('Transaction bytes length:', txBytes.length);
+    console.log('Key path:', keyPath);
+
+    let client;
     try {
-        console.log('Starting signature process for transaction bytes length:', txBytes.length);
-        
+        console.log('Creating GCP KMS client...');
+        client = createGCPKMSClient();
+        console.log('GCP KMS client created successfully');
+    } catch (error) {
+        console.error('FAILED: GCP KMS client creation:', error);
+        return undefined;
+    }
+
+    try {
+        console.log('Step 1: Creating intent message...');
         // Add intent message to transaction bytes
         const intentMessage = messageWithIntent('TransactionData' as any, txBytes);
         console.log('Intent message created, length:', intentMessage.length);
-        
+
+        console.log('Step 2: Creating digest...');
         // Create digest using blake2b hash
         const digest = blake2b(intentMessage, { dkLen: 32 });
         console.log('Digest created, length:', digest.length);
-        
-        // Sign the digest using Google Cloud KMS
-        console.log('Calling GCP KMS asymmetricSign...');
+        console.log('Digest (first 10 bytes):', Array.from(digest.slice(0, 10)).map((b) => (b as number).toString(16).padStart(2, '0')).join(''));
+
+        console.log('Step 3: Calling GCP KMS asymmetricSign...');
         const signPromise = client.asymmetricSign({
             name: keyPath,
             data: digest,
         });
-        
+
         // Add 10 second timeout to prevent hanging
         const timeoutPromise = new Promise((_, reject) => {
             setTimeout(() => reject(new Error('GCP KMS signing timeout after 10 seconds')), 10000);
         });
-        
+
+        console.log('Waiting for KMS signature (with 10s timeout)...');
         const [signResponse] = await Promise.race([signPromise, timeoutPromise]) as any;
         console.log('GCP KMS signing completed successfully');
-        
+
         if (!signResponse.signature) {
-            throw new Error('No signature returned from KMS');
+            console.error('FAILED: No signature returned from KMS');
+            return undefined;
         }
-        
-        const signature = signResponse.signature instanceof Uint8Array 
-            ? signResponse.signature 
+
+        console.log('Step 4: Processing signature response...');
+        const signature = signResponse.signature instanceof Uint8Array
+            ? signResponse.signature
             : new Uint8Array(Buffer.from(signResponse.signature as string, 'base64'));
-        
+
         console.log('Raw KMS signature length:', signature.length);
-        
+        console.log('Raw KMS signature (first 20 bytes):', Array.from(signature.slice(0, 20)).map((b) => (b as number).toString(16).padStart(2, '0')).join(''));
+
+        console.log('Step 5: Getting public key...');
         // Get the public key
         const originalPublicKey = await getPublicKey(keyPath);
         if (!originalPublicKey) {
-            throw new Error('Could not retrieve public key');
+            console.error('FAILED: Could not retrieve public key');
+            return undefined;
         }
-        
+
         console.log('Public key retrieved successfully');
         console.log('Public key address:', originalPublicKey.toMysAddress());
-        
+
+        console.log('Step 6: Converting DER signature to concatenated format...');
         // Convert DER signature to concatenated format
         const concatenatedSignature = getConcatenatedSignature(signature);
         console.log('Concatenated signature length:', concatenatedSignature.length);
-        
+        console.log('Concatenated signature (first 20 bytes):', Array.from(concatenatedSignature.slice(0, 20)).map((b) => (b as number).toString(16).padStart(2, '0')).join(''));
+
+        console.log('Step 7: Creating serialized signature for MySocial...');
         // Create serialized signature for MySocial
         const serializedSignature = await getSerializedSignature(
             concatenatedSignature,
             originalPublicKey
         );
-        
+
         console.log('Serialized signature created, length:', serializedSignature.length);
-        console.log('Signature creation successful - letting gas station handle verification');
-        
+        console.log('Serialized signature (first 50 chars):', serializedSignature.substring(0, 50));
+        console.log('=== SIGNATURE CREATION SUCCESSFUL ===');
+
         return serializedSignature;
     } catch (error) {
+        console.error('=== SIGNATURE CREATION FAILED ===');
         console.error('Error during sign/verify:', error);
         console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+        console.error('Error type:', typeof error);
+        if (error instanceof Error) {
+            console.error('Error name:', error.name);
+            console.error('Error message:', error.message);
+        }
         return undefined;
     }
 } 

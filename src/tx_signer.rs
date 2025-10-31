@@ -52,12 +52,16 @@ pub struct SidecarTxSigner {
 
 impl SidecarTxSigner {
     pub async fn new(sidecar_url: String) -> Arc<Self> {
-        let client = Client::new();
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap();
         let url = format!("{}/{}", sidecar_url, "get-pubkey-address");
         println!("Requesting KMS sidecar address from: {}", url);
-        
+
         let resp = client
             .get(&url)
+            .timeout(std::time::Duration::from_secs(15))
             .send()
             .await
             .unwrap_or_else(|err| panic!("Failed to get pubkey address from {}: {}", url, err));
@@ -94,6 +98,7 @@ impl TxSigner for SidecarTxSigner {
             .client
             .post(format!("{}/{}", self.sidecar_url, "sign-transaction"))
             .header("Content-Type", "application/json")
+            .timeout(std::time::Duration::from_secs(20))
             .json(&json!({"txBytes": bytes}))
             .send()
             .await?;

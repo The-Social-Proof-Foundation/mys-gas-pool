@@ -29,7 +29,7 @@ pub struct Command {
 impl Command {
     pub async fn execute(self) {
         let config: GasStationConfig = GasStationConfig::load(self.config_path).unwrap();
-        print!("Config: {:?}", config);
+        println!("Config: {:?}", config);
         let GasStationConfig {
             signer_config,
             gas_pool_config,
