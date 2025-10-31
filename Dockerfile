@@ -13,7 +13,7 @@ RUN cargo build --release
 
 # Production Image
 FROM debian:bullseye-slim AS runtime
-RUN apt-get update && apt-get install -y libjemalloc-dev ca-certificates curl gettext-base
+RUN apt-get update && apt-get install -y libjemalloc-dev ca-certificates curl gettext-base redis-tools
 COPY --from=builder /target/release/mys-gas-station /usr/local/bin/mys-gas-station
 
 # Create config directory
@@ -29,6 +29,12 @@ set -e\n\
 export PORT=${PORT:-9527}\n\
 echo "Substituting environment variables in config..."\n\
 envsubst < /etc/gas-station/config-template.yaml > /etc/gas-station/config.yaml\n\
+if [ -n "$REDIS_URL" ]; then\n\
+    echo "Flushing Redis database..."\n\
+    redis-cli -u "$REDIS_URL" FLUSHDB || echo "Warning: Failed to flush Redis database"\n\
+else\n\
+    echo "Warning: REDIS_URL not set, skipping Redis flush"\n\
+fi\n\
 echo "Starting mys-gas-station..."\n\
 exec mys-gas-station --config-path /etc/gas-station/config.yaml' > /usr/local/bin/start.sh
 
