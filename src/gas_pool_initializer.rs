@@ -105,7 +105,7 @@ impl CoinSplitEnv {
                 .max_delay(Duration::from_secs(5))
                 .map(jitter);
 
-            let sig = tokio_retry::Retry::spawn(retry_strategy, || async {
+            let sig = match tokio_retry::Retry::spawn(retry_strategy, || async {
                 self.signer
                     .sign_transaction(&tx_data)
                     .await
@@ -114,8 +114,14 @@ impl CoinSplitEnv {
                         let error_preview = &format!("{:?}", err)[..100.min(format!("{:?}", err).len())];
                         error!("Failed to sign transaction: {}...", error_preview);
                     })
-            }).await
-            .unwrap();
+            }).await {
+                Ok(sig) => sig,
+                Err(err) => {
+                    error!("All signing attempts failed for coin splitting. This coin will be skipped. Error: {:?}", err);
+                    // Return empty vector to indicate this coin couldn't be split
+                    return vec![];
+                }
+            };
             let tx = Transaction::from_generic_sig_data(tx_data, vec![sig]);
             debug!(
                 "Sending transaction for execution. Tx digest: {:?}",
@@ -134,16 +140,15 @@ impl CoinSplitEnv {
                 }
                 Err(e) => {
                     error!("Failed to execute transaction: {:?}", e);
-                    coin = self
-                        .mys_client
-                        .get_latest_gas_objects([coin.object_ref.0])
-                        .await
-                        .into_iter()
-                        .next()
-                        .unwrap()
-                        .1
-                        .unwrap();
-                    continue;
+                    // Try to get the updated coin object, but don't crash if this fails
+                    let latest_objects = self.mys_client.get_latest_gas_objects([coin.object_ref.0]).await;
+                    if let Some((_, Some(updated_coin))) = latest_objects.into_iter().next() {
+                        coin = updated_coin;
+                        continue;
+                    }
+                    error!("Failed to get updated coin object after transaction failure. Skipping this coin.");
+                    // Skip this coin instead of crashing - return empty result for this coin
+                    return vec![];
                 }
             }
         };
@@ -325,7 +330,12 @@ impl GasPoolInitializer {
             let Some(task) = env.task_queue.lock().pop_front() else {
                 break;
             };
-            result.extend(task.await.unwrap());
+            match task.await {
+                Ok(split_result) => result.extend(split_result),
+                Err(err) => {
+                    error!("Coin splitting task failed: {:?}", err);
+                }
+            }
         }
         let new_total_balance: u64 = result.iter().map(|c| c.balance).sum();
         info!(

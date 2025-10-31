@@ -26,31 +26,29 @@ async function main() {
     app.get('/get-pubkey-address', async (req: Request, res: Response) => {
         try {
             if (!PROJECT_ID) {
-                console.error('GOOGLE_CLOUD_PROJECT_ID is required but not set');
-                return res.status(500).json({ 
-                    error: 'Failed to get public key', 
-                    details: 'GOOGLE_CLOUD_PROJECT_ID environment variable is required' 
+                console.error('GOOGLE_CLOUD_PROJECT_ID environment variable is required');
+                return res.status(500).json({
+                    error: 'Configuration error',
+                    details: 'GOOGLE_CLOUD_PROJECT_ID environment variable is required'
                 });
             }
-            
+
             const publicKey = await getPublicKey(keyPath);
-            
+
             if (!publicKey) {
-                console.error('getPublicKey returned null/undefined');
-                return res.status(500).json({ 
+                console.error('Failed to retrieve public key from GCP KMS');
+                return res.status(500).json({
                     error: 'Failed to get public key',
-                    details: 'Check server logs for detailed error information'
+                    details: 'Check GCP KMS configuration and permissions'
                 });
             }
-            
+
             const mysPubkeyAddress = publicKey.toMysAddress();
             res.json({ mysPubkeyAddress });
         } catch (error) {
-            console.error('Error getting public key:', error);
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            res.status(500).json({ 
-                error: 'Internal server error',
-                details: errorMessage
+            console.error('Error in get-pubkey-address endpoint:', error instanceof Error ? error.message : error);
+            res.status(500).json({
+                error: 'Internal server error'
             });
         }
     });
@@ -59,27 +57,22 @@ async function main() {
     app.post('/sign-transaction', async (req: Request, res: Response) => {
         try {
             const { txBytes } = req.body;
-            
+
             if (!txBytes) {
                 return res.status(400).json({ error: 'Missing transaction bytes' });
             }
-            
-            console.log('Received sign-transaction request, txBytes length:', txBytes.length);
-            
+
             const txBytesArray = fromB64(txBytes);
             const signature = await signAndVerify(txBytesArray, keyPath);
-            
-            console.log('signAndVerify returned:', signature ? `signature of length ${signature.length}` : 'undefined');
-            
+
             if (!signature) {
-                console.error('signAndVerify returned undefined or empty signature');
+                console.error('Failed to create signature for transaction');
                 return res.status(500).json({ error: 'Failed to sign transaction' });
             }
-            
-            console.log('Sending successful response with signature');
+
             res.json({ signature });
         } catch (error) {
-            console.error('Error signing transaction:', error);
+            console.error('Error in sign-transaction endpoint:', error instanceof Error ? error.message : error);
             res.status(500).json({ error: 'Internal server error' });
         }
     });

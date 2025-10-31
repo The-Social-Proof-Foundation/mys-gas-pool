@@ -113,7 +113,7 @@ export async function getPublicKey(keyPath: string): Promise<Secp256r1PublicKey 
         return mysPublicKey;
         
     } catch (error) {
-        console.error('Error during get public key:', error);
+        console.error('Error retrieving public key from GCP KMS:', error instanceof Error ? error.message : error);
         return undefined;
     }
 }
@@ -210,124 +210,97 @@ async function getSerializedSignature(
     signature: Uint8Array,
     mysPublicKey: Secp256r1PublicKey
 ): Promise<string> {
-    console.log('Creating signature with scheme: Secp256r1');
-    console.log('Public key flag:', mysPublicKey.flag());
-    console.log('Public key bytes length:', mysPublicKey.toRawBytes().length);
-    console.log('Signature bytes length:', signature.length);
-    
     // MySocial signature format: [flag][signature][pubkey]
     // Secp256r1: flag = 0x02, signature = 64 bytes, pubkey = 33 bytes
     const flag = 0x02;
     const pubkeyBytes = mysPublicKey.toRawBytes();
-    
-    console.log('Using flag:', flag);
-    console.log('Pubkey bytes:', Array.from(pubkeyBytes).map((b: number) => b.toString(16).padStart(2, '0')).join(''));
-    console.log('Signature bytes:', Array.from(signature).map((b: number) => b.toString(16).padStart(2, '0')).join(''));
-    
+
     const fullSignature = new Uint8Array(1 + signature.length + pubkeyBytes.length);
     fullSignature[0] = flag;
     fullSignature.set(signature, 1);
     fullSignature.set(pubkeyBytes, 1 + signature.length);
-    
-    console.log('Full signature length:', fullSignature.length);
-    console.log('Full signature (first 20 bytes):', Array.from(fullSignature.slice(0, 20)).map((b: number) => b.toString(16).padStart(2, '0')).join(''));
-    
+
     return toB64(fullSignature);
 }
 
 export async function signAndVerify(txBytes: Uint8Array, keyPath: string): Promise<string | undefined> {
-    console.log('=== STARTING SIGNATURE PROCESS ===');
-    console.log('Transaction bytes length:', txBytes.length);
-    console.log('Key path:', keyPath);
-
-    let client;
-    try {
-        console.log('Creating GCP KMS client...');
-        client = createGCPKMSClient();
-        console.log('GCP KMS client created successfully');
-    } catch (error) {
-        console.error('FAILED: GCP KMS client creation:', error);
-        return undefined;
-    }
+    const startTime = Date.now();
 
     try {
-        console.log('Step 1: Creating intent message...');
+        const client = createGCPKMSClient();
+
         // Add intent message to transaction bytes
         const intentMessage = messageWithIntent('TransactionData' as any, txBytes);
-        console.log('Intent message created, length:', intentMessage.length);
 
-        console.log('Step 2: Creating digest...');
         // Create digest using blake2b hash
         const digest = blake2b(intentMessage, { dkLen: 32 });
-        console.log('Digest created, length:', digest.length);
-        console.log('Digest (first 10 bytes):', Array.from(digest.slice(0, 10)).map((b) => (b as number).toString(16).padStart(2, '0')).join(''));
 
-        console.log('Step 3: Calling GCP KMS asymmetricSign...');
-        const signPromise = client.asymmetricSign({
-            name: keyPath,
-            data: digest,
-        });
+        // Sign the digest using Google Cloud KMS with retry logic
+        const maxRetries = 3;
+        let lastError: Error | null = null;
 
-        // Add 10 second timeout to prevent hanging
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('GCP KMS signing timeout after 10 seconds')), 10000);
-        });
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const signPromise = client.asymmetricSign({
+                    name: keyPath,
+                    data: digest,
+                });
 
-        console.log('Waiting for KMS signature (with 10s timeout)...');
-        const [signResponse] = await Promise.race([signPromise, timeoutPromise]) as any;
-        console.log('GCP KMS signing completed successfully');
+                // Add timeout to prevent hanging
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('GCP KMS signing timeout after 15 seconds')), 15000);
+                });
 
-        if (!signResponse.signature) {
-            console.error('FAILED: No signature returned from KMS');
-            return undefined;
+                const [signResponse] = await Promise.race([signPromise, timeoutPromise]) as any;
+
+                if (!signResponse.signature) {
+                    throw new Error('No signature returned from KMS');
+                }
+
+                const signature = signResponse.signature instanceof Uint8Array
+                    ? signResponse.signature
+                    : new Uint8Array(Buffer.from(signResponse.signature as string, 'base64'));
+
+                // Get the public key (cached, should be fast)
+                const originalPublicKey = await getPublicKey(keyPath);
+                if (!originalPublicKey) {
+                    throw new Error('Could not retrieve public key');
+                }
+
+                // Convert DER signature to concatenated format
+                const concatenatedSignature = getConcatenatedSignature(signature);
+
+                // Create serialized signature for MySocial
+                const serializedSignature = await getSerializedSignature(
+                    concatenatedSignature,
+                    originalPublicKey
+                );
+
+                console.log(`Signature created successfully in ${Date.now() - startTime}ms`);
+                return serializedSignature;
+
+            } catch (error) {
+                lastError = error as Error;
+                if (attempt < maxRetries) {
+                    // Exponential backoff with jitter
+                    const baseDelay = 1000; // 1 second
+                    const maxDelay = 5000; // 5 seconds
+                    const exponentialDelay = Math.min(baseDelay * Math.pow(2, attempt - 1), maxDelay);
+                    const jitter = Math.random() * 1000; // Up to 1 second jitter
+                    const delay = exponentialDelay + jitter;
+
+                    console.warn(`KMS signing attempt ${attempt} failed, retrying in ${Math.round(delay)}ms`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
         }
 
-        console.log('Step 4: Processing signature response...');
-        const signature = signResponse.signature instanceof Uint8Array
-            ? signResponse.signature
-            : new Uint8Array(Buffer.from(signResponse.signature as string, 'base64'));
+        // All retries failed
+        console.error(`All ${maxRetries} KMS signing attempts failed. Last error:`, lastError?.message);
+        return undefined;
 
-        console.log('Raw KMS signature length:', signature.length);
-        console.log('Raw KMS signature (first 20 bytes):', Array.from(signature.slice(0, 20)).map((b) => (b as number).toString(16).padStart(2, '0')).join(''));
-
-        console.log('Step 5: Getting public key...');
-        // Get the public key
-        const originalPublicKey = await getPublicKey(keyPath);
-        if (!originalPublicKey) {
-            console.error('FAILED: Could not retrieve public key');
-            return undefined;
-        }
-
-        console.log('Public key retrieved successfully');
-        console.log('Public key address:', originalPublicKey.toMysAddress());
-
-        console.log('Step 6: Converting DER signature to concatenated format...');
-        // Convert DER signature to concatenated format
-        const concatenatedSignature = getConcatenatedSignature(signature);
-        console.log('Concatenated signature length:', concatenatedSignature.length);
-        console.log('Concatenated signature (first 20 bytes):', Array.from(concatenatedSignature.slice(0, 20)).map((b) => (b as number).toString(16).padStart(2, '0')).join(''));
-
-        console.log('Step 7: Creating serialized signature for MySocial...');
-        // Create serialized signature for MySocial
-        const serializedSignature = await getSerializedSignature(
-            concatenatedSignature,
-            originalPublicKey
-        );
-
-        console.log('Serialized signature created, length:', serializedSignature.length);
-        console.log('Serialized signature (first 50 chars):', serializedSignature.substring(0, 50));
-        console.log('=== SIGNATURE CREATION SUCCESSFUL ===');
-
-        return serializedSignature;
     } catch (error) {
-        console.error('=== SIGNATURE CREATION FAILED ===');
-        console.error('Error during sign/verify:', error);
-        console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
-        console.error('Error type:', typeof error);
-        if (error instanceof Error) {
-            console.error('Error name:', error.name);
-            console.error('Error message:', error.message);
-        }
+        console.error('Critical error in signAndVerify:', error instanceof Error ? error.message : error);
         return undefined;
     }
 } 
