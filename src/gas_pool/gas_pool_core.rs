@@ -281,13 +281,14 @@ impl GasPool {
     /// Release gas coins back to the gas pool, by adding them to the storage.
     async fn release_gas_coins(&self, gas_coins: Vec<GasCoin>) {
         debug!("Trying to release gas coins: {:?}", gas_coins);
-        retry_forever!(async {
+        if let Err(err) = retry_forever!(async {
             self.gas_pool_store
                 .add_new_coins(gas_coins.clone())
                 .await
                 .tap_err(|err| error!("Failed to call update_gas_coins on storage: {:?}", err))
-        })
-        .unwrap();
+        }) {
+            error!("Failed to release gas coins after all retries: {:?}", err);
+        }
     }
 
     /// Performs an end-to-end flow of reserving gas, signing a transaction, and releasing the gas coins.
@@ -349,7 +350,10 @@ impl GasPool {
         self.gas_pool_store
             .get_available_coin_count()
             .await
-            .unwrap()
+            .unwrap_or_else(|err| {
+                error!("Failed to get available coin count: {:?}", err);
+                0 // Return 0 if we can't query
+            })
     }
 }
 
@@ -386,6 +390,8 @@ impl GasPoolContainer {
 
 impl Drop for GasPoolContainer {
     fn drop(&mut self) {
-        self.cancel_sender.take().unwrap().send(()).unwrap();
+        if let Some(sender) = self.cancel_sender.take() {
+            let _ = sender.send(()); // Ignore send errors during shutdown
+        }
     }
 }
