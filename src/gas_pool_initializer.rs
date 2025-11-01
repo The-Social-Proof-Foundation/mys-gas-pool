@@ -32,6 +32,9 @@ const NEW_COIN_BALANCE_FACTOR_THRESHOLD: u64 = 200;
 /// Assume that initializing the gas pool (i.e. splitting coins) will take at most 12 hours.
 const MAX_INIT_DURATION_SEC: u64 = 60 * 60 * 12;
 
+/// Maximum number of coins to process in one initialization cycle to prevent KMS rate limiting
+const MAX_COINS_PER_INIT_CYCLE: usize = 500;
+
 #[derive(Clone)]
 struct CoinSplitEnv {
     target_init_coin_balance: u64,
@@ -280,10 +283,11 @@ impl GasPoolInitializer {
         } else {
             target_init_coin_balance * NEW_COIN_BALANCE_FACTOR_THRESHOLD
         };
-        let coins = mys_client
+        let mut all_coins = mys_client
             .get_all_owned_mys_coins_above_balance_threshold(sponsor_address, balance_threshold)
             .await;
-        if coins.is_empty() {
+
+        if all_coins.is_empty() {
             info!(
                 "No coins with balance above {} found. Skipping new coin initialization",
                 balance_threshold
@@ -293,14 +297,28 @@ impl GasPoolInitializer {
             }
             return;
         }
-        let total_coin_count = Arc::new(AtomicUsize::new(coins.len()));
+
+        // Limit coins per cycle to prevent KMS rate limiting and resource exhaustion
+        let coins_to_process = if all_coins.len() > MAX_COINS_PER_INIT_CYCLE {
+            info!(
+                "Found {} coins above threshold, limiting to {} coins per initialization cycle to prevent KMS rate limiting",
+                all_coins.len(),
+                MAX_COINS_PER_INIT_CYCLE
+            );
+            all_coins.truncate(MAX_COINS_PER_INIT_CYCLE);
+            all_coins
+        } else {
+            info!("Processing {} coins in this initialization cycle", all_coins.len());
+            all_coins
+        };
+        let total_coin_count = Arc::new(AtomicUsize::new(coins_to_process.len()));
         let rgp = mys_client.get_reference_gas_price().await;
         let gas_cost_per_object = mys_client
-            .calibrate_gas_cost_per_object(sponsor_address, &coins[0])
+            .calibrate_gas_cost_per_object(sponsor_address, &coins_to_process[0])
             .await;
         info!("Calibrated gas cost per object: {:?}", gas_cost_per_object);
         let result = Self::split_gas_coins(
-            coins,
+            coins_to_process,
             CoinSplitEnv {
                 target_init_coin_balance,
                 gas_cost_per_object,
