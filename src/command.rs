@@ -13,7 +13,7 @@ use clap::*;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use mys_config::Config;
-use tracing::info;
+use tracing::{error, info};
 
 #[derive(Parser)]
 #[command(
@@ -89,6 +89,8 @@ impl Command {
             rpc_metrics,
         )
         .await;
-        server.handle.await.unwrap();
+        if let Err(err) = server.handle.await {
+            error!("RPC server error: {:?}", err);
+        }
     }
 }

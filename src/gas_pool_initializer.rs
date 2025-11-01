@@ -33,7 +33,7 @@ const NEW_COIN_BALANCE_FACTOR_THRESHOLD: u64 = 200;
 const MAX_INIT_DURATION_SEC: u64 = 60 * 60 * 12;
 
 /// Maximum number of coins to process in one initialization cycle to prevent KMS rate limiting
-const MAX_COINS_PER_INIT_CYCLE: usize = 500;
+const MAX_COINS_PER_INIT_CYCLE: usize = 1000;
 
 #[derive(Clone)]
 struct CoinSplitEnv {
@@ -357,21 +357,21 @@ impl GasPoolInitializer {
             total_balance / env.target_init_coin_balance,
         );
 
-        // Process coins sequentially to avoid overwhelming the KMS sidecar
-        // Each coin splitting involves multiple signing operations that can take 15+ seconds each
+        // Process coins in parallel for maximum speed
+        // KMS sidecar can handle concurrent requests with caching and retries
         let mut result = vec![];
         for coin in coins {
-            if coin.balance <= (env.gas_cost_per_object + env.target_init_coin_balance) * 2 {
-                // Coin doesn't need splitting, add it directly
-                result.push(coin);
-            } else {
-                // Coin needs splitting - process it sequentially
-                info!("Processing coin split for balance: {}", coin.balance);
-                let split_result = env.clone().split_one_gas_coin(coin).await;
-                result.extend(split_result);
-
-                // Add a small delay between coin processing to be gentle on KMS
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            result.extend(env.enqueue_task(coin));
+        }
+        loop {
+            let Some(task) = env.task_queue.lock().pop_front() else {
+                break;
+            };
+            match task.await {
+                Ok(split_result) => result.extend(split_result),
+                Err(err) => {
+                    error!("Coin splitting task failed: {:?}", err);
+                }
             }
         }
         let new_total_balance: u64 = result.iter().map(|c| c.balance).sum();
