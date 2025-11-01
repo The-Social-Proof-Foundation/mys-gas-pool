@@ -23,7 +23,7 @@ use mys_types::MYS_FRAMEWORK_PACKAGE_ID;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 /// Any coin owned by the sponsor address with balance above target_init_coin_balance * NEW_COIN_BALANCE_FACTOR_THRESHOLD
 /// is considered a new coin, and we will try to split it into smaller coins with balance close to target_init_coin_balance.
@@ -50,7 +50,7 @@ struct CoinSplitEnv {
 impl CoinSplitEnv {
     fn enqueue_task(&self, coin: GasCoin) -> Option<GasCoin> {
         if coin.balance <= (self.gas_cost_per_object + self.target_init_coin_balance) * 2 {
-            debug!(
+            trace!(
                 "Skip splitting coin {:?} because it has small balance",
                 coin
             );
@@ -78,7 +78,7 @@ impl CoinSplitEnv {
             2000,
             coin.balance / (self.gas_cost_per_object + self.target_init_coin_balance),
         );
-        debug!(
+        trace!(
             "Evenly splitting coin {:?} into {} coins",
             coin, split_count
         );
@@ -201,6 +201,13 @@ impl GasPoolInitializer {
                 true
             }
         };
+
+        // Conditionally flush Redis if we need to start fresh and FORCE_FRESH_START is set
+        if should_run_init && std::env::var("FORCE_FRESH_START").is_ok() {
+            info!("FORCE_FRESH_START is set and pool needs initialization. Flushing Redis database to start fresh.");
+            storage.flush_db().await;
+        }
+
         if should_run_init {
             // If the pool has never been initialized, always run once at the beginning to make sure we have enough coins.
             Self::run_once(
