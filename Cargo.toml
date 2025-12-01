@@ -29,7 +29,10 @@ telemetry-subscribers = { git = "https://github.com/The-Social-Proof-Foundation/
 
 anyhow = "1.0.75"
 async-trait = "0.1.51"
-axum = { version = "0.6.6", features = ["headers"] }
+axum = "0.7"
+axum-extra = { version = "0.9", features = ["typed-header"] }
+http-body = "1.0"
+tower-http = "0.5"
 bcs = "0.1.6"
 clap = "4.4.10"
 chrono = "0.4.19"
@@ -55,7 +58,7 @@ schemars = "0.8.16"
 tap = "1.0.1"
 tempfile = "3.2.0"
 tracing = "0.1.40"
-tokio = { version = "1.36.0", features = ["full"] }
+tokio = { version = "1.43", features = ["full"] }
 tokio-retry = "0.3.0"
 serde_json = "1.0.108"
 

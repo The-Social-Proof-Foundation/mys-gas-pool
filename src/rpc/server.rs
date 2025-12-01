@@ -9,9 +9,9 @@ use crate::rpc::client::GasPoolRpcClient;
 use crate::rpc::rpc_types::{
     ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest, ReserveGasResponse,
 };
-use axum::extract::TypedHeader;
-use axum::headers::authorization::Bearer;
-use axum::headers::Authorization;
+use axum_extra::typed_header::TypedHeader;
+use axum_extra::headers::authorization::Bearer;
+use axum_extra::headers::Authorization;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -67,8 +67,10 @@ impl GasPoolServer {
         let address = SocketAddr::new(IpAddr::V4(host_ip), rpc_port);
         let handle = tokio::spawn(async move {
             info!("listening on {}", address);
-            axum::Server::bind(&address)
-                .serve(app.into_make_service())
+            let listener = tokio::net::TcpListener::bind(&address)
+                .await
+                .unwrap();
+            axum::serve(listener, app.into_make_service())
                 .await
                 .unwrap();
         });
