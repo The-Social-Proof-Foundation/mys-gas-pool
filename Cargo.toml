@@ -31,6 +31,7 @@ anyhow = "1.0.75"
 async-trait = "0.1.51"
 axum = "0.7"
 axum-extra = { version = "0.9", features = ["typed-header"] }
+axum-server = "0.7"
 http-body = "1.0"
 tower-http = "0.5"
 bcs = "0.1.6"
@@ -67,7 +68,6 @@ rand = "0.8.5"
 
 mys-swarm-config = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "main", package = "mys-swarm-config" }
 test-cluster = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "main", package = "test-cluster" }
-
 
 [profile.release]
 panic = "abort"

@@ -865,6 +865,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-server"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1ab4a3ec9ea8a657c72d99a03a824af695bd0fb5ec639ccbd9cd3543b41a5f9"
+dependencies = [
+ "bytes",
+ "fs-err",
+ "http 1.3.1",
+ "http-body 1.0.1",
+ "hyper 1.6.0",
+ "hyper-util",
+ "tokio",
+ "tower-service",
+]
+
+[[package]]
 name = "backoff"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2980,6 +2996,16 @@ name = "fragile"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dd6caf6059519a65843af8fe2a3ae298b14b80179855aeb4adc2c1934ee619"
+
+[[package]]
+name = "fs-err"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62d91fd049c123429b018c47887d3f75a265540dd3c30ba9cb7bae9197edb03a"
+dependencies = [
+ "autocfg",
+ "tokio",
+]
 
 [[package]]
 name = "fsevent-sys"
@@ -5702,6 +5728,7 @@ dependencies = [
  "async-trait",
  "axum 0.7.9",
  "axum-extra",
+ "axum-server 0.7.3",
  "bcs",
  "chrono",
  "clap",
@@ -6683,7 +6710,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "axum 0.7.9",
- "axum-server",
+ "axum-server 0.6.1",
  "ed25519",
  "fastcrypto 0.1.8",
  "pkcs8 0.9.0",
