@@ -9,12 +9,12 @@ use crate::rpc::client::GasPoolRpcClient;
 use crate::rpc::rpc_types::{
     ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest, ReserveGasResponse,
 };
-use axum::headers::authorization::Bearer;
-use axum::headers::Authorization;
-use axum::http::StatusCode;
+use axum::extract::FromRequestParts;
+use axum::http::{request::Parts, HeaderMap, StatusCode};
+use axum::response::Response;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
-use axum::{Extension, Json, Router, TypedHeader};
+use axum::{Extension, Json, Router};
 use fastcrypto::encoding::Base64;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -66,8 +66,8 @@ impl GasPoolServer {
         let address = SocketAddr::new(IpAddr::V4(host_ip), rpc_port);
         let handle = tokio::spawn(async move {
             info!("listening on {}", address);
-            axum::Server::bind(&address)
-                .serve(app.into_make_service())
+            let listener = tokio::net::TcpListener::bind(&address).await.unwrap();
+            axum::serve(listener, app.into_make_service())
                 .await
                 .unwrap();
         });
@@ -97,6 +97,32 @@ impl ServerState {
     }
 }
 
+// Custom extractor for HeaderMap
+struct Headers(pub HeaderMap);
+
+#[axum::async_trait]
+impl<S> FromRequestParts<S> for Headers
+where
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        Ok(Headers(parts.headers.clone()))
+    }
+}
+
+fn check_auth(headers: &HeaderMap, secret: &str) -> bool {
+    if let Some(auth_header) = headers.get("authorization") {
+        if let Ok(auth_str) = auth_header.to_str() {
+            if let Some(token) = auth_str.strip_prefix("Bearer ") {
+                return token == secret;
+            }
+        }
+    }
+    false
+}
+
 async fn health() -> &'static str {
     info!("Received health request");
     "OK"
@@ -108,11 +134,11 @@ async fn version() -> &'static str {
 }
 
 async fn debug_health_check(
-    TypedHeader(authorization): TypedHeader<Authorization<Bearer>>,
+    Headers(headers): Headers,
     Extension(server): Extension<ServerState>,
 ) -> String {
     info!("Received debug_health_check request");
-    if authorization.token() != server.secret.as_str() {
+    if !check_auth(&headers, &server.secret) {
         return "Unauthorized".to_string();
     }
     if let Err(err) = server.gas_station.debug_check_health().await {
@@ -122,12 +148,12 @@ async fn debug_health_check(
 }
 
 async fn reserve_gas(
-    TypedHeader(authorization): TypedHeader<Authorization<Bearer>>,
+    Headers(headers): Headers,
     Extension(server): Extension<ServerState>,
     Json(payload): Json<ReserveGasRequest>,
 ) -> impl IntoResponse {
     server.metrics.num_reserve_gas_requests.inc();
-    if authorization.token() != server.secret.as_str() {
+    if !check_auth(&headers, &server.secret) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(ReserveGasResponse::new_err(anyhow::anyhow!(
@@ -216,12 +242,12 @@ async fn reserve_gas_impl(
 }
 
 async fn execute_tx(
-    TypedHeader(authorization): TypedHeader<Authorization<Bearer>>,
+    Headers(headers): Headers,
     Extension(server): Extension<ServerState>,
     Json(payload): Json<ExecuteTxRequest>,
 ) -> impl IntoResponse {
     server.metrics.num_execute_tx_requests.inc();
-    if authorization.token() != server.secret.as_ref() {
+    if !check_auth(&headers, &server.secret) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(ExecuteTxResponse::new_err(anyhow::anyhow!(

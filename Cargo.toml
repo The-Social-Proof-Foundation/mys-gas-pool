@@ -29,7 +29,8 @@ telemetry-subscribers = { git = "https://github.com/The-Social-Proof-Foundation/
 
 anyhow = "1.0.75"
 async-trait = "0.1.51"
-axum = { version = "0.6.6", features = ["headers"] }
+axum = "0.7"
+http = "1.0"
 bcs = "0.1.6"
 clap = "4.4.10"
 chrono = "0.4.19"
