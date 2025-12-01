@@ -11,4 +11,4 @@ fullnode-url: "${FULLNODE_URL}"
 coin-init-config:
   target-init-balance: 100000000  # 0.1 MYS in MIST
   refresh-interval-sec: 86400     # 24 hours
-daily-gas-usage-cap: 150000000000000  # 150000 MYS in MIST 
+daily-gas-usage-cap: 15000000000000  # 15000 MYS in MIST 
