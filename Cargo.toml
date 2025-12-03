@@ -19,24 +19,23 @@ repository = "https://github.com/The-Social-Proof-Foundation/mys-core-gas-statio
 #typed-store-derive = { path = "../mys-upstream/crates/typed-store-derive" }
 
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", branch = "main" }
-mysten-metrics = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "main", package = "mysten-metrics" }
-mys-config = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "main", package = "mys-config" }
-mys-json-rpc-types = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "main", package = "mys-json-rpc-types" }
-mys-sdk = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "main", package = "mys-sdk" }
-mys-types = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "main", package = "mys-types" }
-shared-crypto = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "main", package = "shared-crypto" }
-telemetry-subscribers = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "main", package = "telemetry-subscribers" }
+mysten-metrics = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "custom-profile-contract-add", package = "mysten-metrics" }
+mys-config = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "custom-profile-contract-add", package = "mys-config" }
+mys-json-rpc-types = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "custom-profile-contract-add", package = "mys-json-rpc-types" }
+mys-sdk = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "custom-profile-contract-add", package = "mys-sdk" }
+mys-types = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "custom-profile-contract-add", package = "mys-types" }
+shared-crypto = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "custom-profile-contract-add", package = "shared-crypto" }
+telemetry-subscribers = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "custom-profile-contract-add", package = "telemetry-subscribers" }
 
 anyhow = "1.0.75"
 async-trait = "0.1.51"
 axum = "0.7"
 axum-extra = { version = "0.9", features = ["typed-header"] }
-axum-server = "0.7"
 http-body = "1.0"
 tower-http = "0.5"
 bcs = "0.1.6"
 clap = "4.4.10"
-chrono = "0.4.19"
+chrono = "=0.4.38"
 const-str = "0.5.6"
 eyre = "0.6.9"
 futures-util = "0.3.30"
@@ -66,8 +65,10 @@ serde_json = "1.0.108"
 [dev-dependencies]
 rand = "0.8.5"
 
-mys-swarm-config = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "main", package = "mys-swarm-config" }
-test-cluster = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "main", package = "test-cluster" }
+mys-swarm-config = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "custom-profile-contract-add", package = "mys-swarm-config" }
+test-cluster = { git = "https://github.com/The-Social-Proof-Foundation/mys-core", branch = "custom-profile-contract-add", package = "test-cluster" }
+
+# Using custom-profile-contract-add branch which fixes axum-server compatibility issues
 
 [profile.release]
 panic = "abort"
