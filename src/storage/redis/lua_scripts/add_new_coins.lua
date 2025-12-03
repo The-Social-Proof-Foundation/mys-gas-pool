@@ -36,11 +36,21 @@ end
 local t_available_coin_total_balance = sponsor_address .. ':available_coin_total_balance'
 -- TODO: For some reason INCRBY is not working, so we have to do this in two steps.
 local cur_coin_total_balance = redis.call('GET', t_available_coin_total_balance)
+if cur_coin_total_balance == nil then
+    cur_coin_total_balance = 0
+else
+    cur_coin_total_balance = tonumber(cur_coin_total_balance)
+end
 local new_total_balance = cur_coin_total_balance + total_balance
 redis.call('SET', t_available_coin_total_balance, new_total_balance)
 
 local t_available_coin_count = sponsor_address .. ':available_coin_count'
 local cur_coin_count = redis.call('GET', t_available_coin_count)
+if cur_coin_count == nil then
+    cur_coin_count = 0
+else
+    cur_coin_count = tonumber(cur_coin_count)
+end
 local new_coin_count = cur_coin_count + count
 redis.call('SET', t_available_coin_count, new_coin_count)
 
